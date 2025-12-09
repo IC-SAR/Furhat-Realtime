@@ -12,11 +12,3 @@ class Furhat:
     asyncio.run(self.start_conversation())
     print("furhat initialized")
     
-  async def start_conversation(self):
-    self.furhat_real.connect()
-    self.state: FurhatState = FurhatState.IDLE
-    await self.furhat_real.request
-
-
-  
-  
