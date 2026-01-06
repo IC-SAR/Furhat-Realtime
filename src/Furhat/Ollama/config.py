@@ -1,0 +1,1 @@
+DEFAULT_MODEL: str = "gemma3:4b"
