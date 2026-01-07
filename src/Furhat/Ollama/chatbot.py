@@ -1,8 +1,8 @@
 import ollama
-import config
+from . import config 
 
 def check_for_model(model: str):
-  response = ollama.list
+  response = ollama.list()
   installed_models = [m['model'] for m in response['models']]
   for installed in installed_models:
     if installed == model:

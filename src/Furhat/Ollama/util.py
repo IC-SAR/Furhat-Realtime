@@ -1,6 +1,6 @@
 import re
 from typing import Generator
-import chatbot
+from . import chatbot
 
 def get_response_by_token(prompt: str) -> Generator[str, None, None]:
   """
@@ -57,4 +57,4 @@ def get_response_by_regex(prompt: str, regex: str) -> Generator[str, None, None]
       yield buffer
 
 def get_response_by_punctuation(prompt: str) -> Generator[str, None, None]:
-   return get_response_by_regex(prompt, r'(?<=[.!?])\s+')
+  return get_response_by_regex(prompt, r'(?<=[.!?])\s+')
