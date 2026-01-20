@@ -1,0 +1,2 @@
+IP: str = "172.27.8.32"
+END_SPEECH_TIMEOUT: float = 2.0
