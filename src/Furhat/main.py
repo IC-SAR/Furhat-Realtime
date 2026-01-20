@@ -1,7 +1,7 @@
 import asyncio
 import threading
 from Ollama import chatbot, util
-from Robot import robot
+from Robot import robot, furhat
 from UI import ui
 
 
@@ -38,3 +38,4 @@ worker_thread.start()
 
 root.protocol("WM_DELETE_WINDOW", _on_close)
 root.mainloop()
+furhat.disconnect()
