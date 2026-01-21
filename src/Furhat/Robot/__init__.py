@@ -1,1 +1,1 @@
-from Robot.robot import furhat
+from .robot import furhat

@@ -1,1 +1,2 @@
 DEFAULT_MODEL: str = "gemma3:4b"
+DEFAULT_TEMPERATURE: float = 0.7

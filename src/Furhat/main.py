@@ -1,41 +1,48 @@
+"""Launch the Furhat realtime UI and background robot loop."""
+
 import asyncio
 import threading
-from Ollama import chatbot, util
-from Robot import robot, furhat
-from UI import ui
+
+try:
+    from .Robot import robot
+    from .UI import ui
+except ImportError:
+    # Allow running as a script (python src/Furhat/main.py).
+    from Robot import robot
+    from UI import ui
 
 
-# Start a dedicated asyncio event loop on a background thread
-loop = asyncio.new_event_loop()
+def _start_loop(event_loop: asyncio.AbstractEventLoop) -> None:
+    asyncio.set_event_loop(event_loop)
+    event_loop.run_forever()
 
-def _start_loop(loop):
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
 
-# Clean shutdown: stop asyncio loop when window closes
-def _on_close():
-    robot.furhat.disconnect()
-    loop.call_soon_threadsafe(loop.stop)
-    root.destroy()
-    
-loop_thread = threading.Thread(target=_start_loop, args=(loop,), daemon=True)
-loop_thread.start()
-
-# Create the UI and pass the asyncio loop so UI callbacks can schedule coroutines safely
-root = ui.create_ui(loop=loop)
-
-# Run the blocking generator in a worker thread and schedule async speech on the asyncio loop
-def background_worker(prompt: str):
+def _start_robot() -> None:
     asyncio.run(robot.setup())
 
-worker_thread = threading.Thread(
-    target=background_worker,
-    args=("hello, world. DO NOT USE EMOJIS IN YOUR RESPONSE",),
-    daemon=True,
-)
-worker_thread.start()
+
+def main() -> None:
+    # Dedicated asyncio loop on a background thread.
+    loop = asyncio.new_event_loop()
+    loop_thread = threading.Thread(target=_start_loop, args=(loop,), daemon=True)
+    loop_thread.start()
+
+    # Create the UI and pass the asyncio loop so callbacks can schedule coroutines safely.
+    root = ui.create_ui(loop=loop)
+
+    # Run the robot loop in a worker thread so the UI stays responsive.
+    worker_thread = threading.Thread(target=_start_robot, daemon=True)
+    worker_thread.start()
+
+    def _on_close() -> None:
+        robot.disconnect()
+        loop.call_soon_threadsafe(loop.stop)
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", _on_close)
+    root.mainloop()
+    robot.disconnect()
 
 
-root.protocol("WM_DELETE_WINDOW", _on_close)
-root.mainloop()
-furhat.disconnect()
+if __name__ == "__main__":
+    main()
