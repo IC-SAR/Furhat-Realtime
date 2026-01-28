@@ -34,6 +34,9 @@ hear_end_event = asyncio.Event()
 handlers_registered = False
 is_speaking = False
 is_listening = False
+# When True, a full speak session (thinking + speaking) is active and
+# the UI should keep the listen button disabled for the whole session.
+speech_session_active = False
 
 
 def set_log_callback(callback: Optional[Callable[[str], None]]) -> None:
@@ -123,9 +126,11 @@ async def on_speak_start(event: object) -> None:
     _notify(f"speak start: {_event_text(event)}")
     global is_speaking
     is_speaking = True
-    # Inform UI to disable the listen button while speaking.
+    # Inform UI to disable the listen button while speaking, but avoid
+    # toggling if a full speech session is already active (prevents
+    # re-enabling between chunks).
     try:
-        if listen_button_callback:
+        if listen_button_callback and not speech_session_active:
             listen_button_callback(False)
     except Exception:
         logger.exception("Error calling listen_button_callback on speak start")
@@ -139,9 +144,11 @@ async def on_speak_end(event: object) -> None:
     _notify(f"speak end: {_event_text(event)}")
     global is_speaking
     is_speaking = False
-    # Inform UI to re-enable the listen button when speaking ends.
+    # Inform UI to re-enable the listen button when speaking ends, but
+    # avoid re-enabling if a full speech session is active (that will
+    # re-enable when the session completes).
     try:
-        if listen_button_callback:
+        if listen_button_callback and not speech_session_active:
             listen_button_callback(True)
     except Exception:
         logger.exception("Error calling listen_button_callback on speak end")
@@ -254,10 +261,28 @@ async def apply_voice_settings() -> None:
 
 
 async def speak_from_prompt(prompt: str) -> None:
-    say_text = Ollama.get_response_by_punctuation(prompt)
-    for chunk in say_text:
-        logger.debug("Speak chunk: %s", chunk)
-        await furhat.request_speak_text(chunk, wait=True)
+    global speech_session_active
+    # Lock the UI for the full thinking+speaking session.
+    speech_session_active = True
+    try:
+        try:
+            if listen_button_callback:
+                listen_button_callback(False)
+        except Exception:
+            logger.exception("Error calling listen_button_callback at session start")
+
+        say_text = Ollama.get_response_by_punctuation(prompt)
+        for chunk in say_text:
+            logger.debug("Speak chunk: %s", chunk)
+            await furhat.request_speak_text(chunk, wait=True)
+    finally:
+        # Session finished — allow the UI to re-enable the listen button.
+        speech_session_active = False
+        try:
+            if listen_button_callback:
+                listen_button_callback(True)
+        except Exception:
+            logger.exception("Error calling listen_button_callback at session end")
 
 
 async def reconnect() -> None:

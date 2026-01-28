@@ -415,8 +415,14 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
 
     robot.set_log_callback(lambda message: root.after(0, add_log, message))
 
-    # Keep the listen button disabled while the robot is speaking.
+    # Use a thread-visible flag to track whether the listen button is
+    # enabled. The callback updates this flag immediately (no Tk
+    # operations), and schedules the actual Tk change via `root.after`.
+    listen_button_enabled = True
+
     def _set_listen_button_enabled(enabled: bool) -> None:
+        nonlocal listen_button_enabled
+        listen_button_enabled = bool(enabled)
         try:
             root.after(0, lambda: listen_button.configure(state=("normal" if enabled else "disabled")))
         except Exception:
@@ -430,9 +436,11 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         # backwards compatibility, ignore.
         pass
 
-    # Apply initial state based on whether robot is currently speaking.
+    # Apply initial state based on whether robot is currently speaking
+    # or in a speech session.
     try:
-        if getattr(robot, "is_speaking", False):
+        if getattr(robot, "is_speaking", False) or getattr(robot, "speech_session_active", False):
+            listen_button_enabled = False
             listen_button.configure(state="disabled")
     except Exception:
         pass
@@ -455,6 +463,12 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         model_options.set("Select model")
 
     def on_button_press(event):
+        # Ignore presses if the button is disabled
+        try:
+            if not listen_button_enabled:
+                return
+        except Exception:
+            pass
         set_status("listening...", "#fbbf24")
         listen_button.configure(bg="#f59e0b")
         if loop:
@@ -465,6 +479,12 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
             ).start()
 
     def on_button_release(event):
+        # Ignore releases if the button is disabled
+        try:
+            if not listen_button_enabled:
+                return
+        except Exception:
+            pass
         set_status("thinking...", "#38bdf8")
         listen_button.configure(bg="#fbbf24")
         if loop:
