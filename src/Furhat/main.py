@@ -22,7 +22,7 @@ def _start_robot() -> None:
 
 
 def main() -> None:
-    # Dedicated asyncio loop on a background thread.
+    # Dedicated asyncio loop on a background thregitad.
     loop = asyncio.new_event_loop()
     loop_thread = threading.Thread(target=_start_loop, args=(loop,), daemon=True)
     loop_thread.start()

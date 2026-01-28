@@ -1,7 +1,26 @@
 import re
 from typing import Generator
 
-from . import chatbot
+from ollama import chat
+
+try:
+    from . import chatbot
+except ImportError:
+    import chatbot
+
+def get_full_response(prompt: str):
+    chatbot.messages.append({"role": "user", "content": prompt})
+    stream = chatbot.client.chat(
+        model=chatbot.current_model,
+        messages=chatbot.messages,
+        stream=False,
+        options={"temperature": chatbot.current_temperature},
+    )
+    print("aaaa")
+    print(stream.message.content)
+    return stream.message.content
+
+
 
 def get_response_by_token(prompt: str) -> Generator[str, None, None]:
     """
@@ -56,8 +75,20 @@ def get_response_by_regex(prompt: str, regex: str) -> Generator[str, None, None]
             match = re.search(regex, buffer)
 
     if buffer:
-        yield buffer
+        
+        yield re.sub(r'[^a-zA-Z0-9]', '', buffer)
+
 
 
 def get_response_by_punctuation(prompt: str) -> Generator[str, None, None]:
     return get_response_by_regex(prompt, r"(?<=[.!?])\s+")
+
+if __name__ == "__main__":
+    print("hi")
+    t = get_response_by_punctuation("Hello, world!")
+    for r in t:
+        print(r, end="")
+    
+    t = get_response_by_punctuation("Say 10 sentences")
+    for r in t:
+        print(r, end="")
