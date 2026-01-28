@@ -16,7 +16,6 @@ def get_full_response(prompt: str):
         stream=False,
         options={"temperature": chatbot.current_temperature},
     )
-    print("aaaa")
     print(stream.message.content)
     return stream.message.content
 
