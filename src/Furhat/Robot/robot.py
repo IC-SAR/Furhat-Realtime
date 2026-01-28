@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 furhat = AsyncFurhatClient(config.IP)
 furhat.set_logging_level(logging.INFO)
 log_callback: Optional[Callable[[str], None]] = None
+# Callback used by the UI to enable/disable the listen button while speaking.
+listen_button_callback: Optional[Callable[[bool], None]] = None
 partial_text = ""
 recognized_text = ""
 listen_partial = True
@@ -37,6 +39,15 @@ is_listening = False
 def set_log_callback(callback: Optional[Callable[[str], None]]) -> None:
     global log_callback
     log_callback = callback
+
+
+def set_listen_button_enabled_callback(callback: Optional[Callable[[bool], None]]) -> None:
+    """Register a callback that will be called with a single boolean
+    argument indicating whether the "Hold to Listen" button should be
+    enabled (True) or disabled (False).
+    """
+    global listen_button_callback
+    listen_button_callback = callback
 
 
 def _notify(message: str) -> None:
@@ -112,6 +123,12 @@ async def on_speak_start(event: object) -> None:
     _notify(f"speak start: {_event_text(event)}")
     global is_speaking
     is_speaking = True
+    # Inform UI to disable the listen button while speaking.
+    try:
+        if listen_button_callback:
+            listen_button_callback(False)
+    except Exception:
+        logger.exception("Error calling listen_button_callback on speak start")
     if is_listening and listen_stop_robot_start:
         await furhat.request_listen_stop()
         _notify("listening stopped: robot speaking")
@@ -122,6 +139,12 @@ async def on_speak_end(event: object) -> None:
     _notify(f"speak end: {_event_text(event)}")
     global is_speaking
     is_speaking = False
+    # Inform UI to re-enable the listen button when speaking ends.
+    try:
+        if listen_button_callback:
+            listen_button_callback(True)
+    except Exception:
+        logger.exception("Error calling listen_button_callback on speak end")
   
 
 async def setup() -> None:

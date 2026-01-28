@@ -1,12 +1,12 @@
 {
-  "model": "gemma3:1b",
+  "model": "gemma3:4b",
   "temperature": 0.7,
   "ip": "172.27.8.32",
   "listen": {
     "partial": true,
     "concat": true,
     "stop_no_speech": false,
-    "stop_user_end": false,
+    "stop_user_end": true,
     "stop_robot_start": false,
     "interrupt_speech": false
   },

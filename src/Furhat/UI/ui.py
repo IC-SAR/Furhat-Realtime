@@ -415,6 +415,28 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
 
     robot.set_log_callback(lambda message: root.after(0, add_log, message))
 
+    # Keep the listen button disabled while the robot is speaking.
+    def _set_listen_button_enabled(enabled: bool) -> None:
+        try:
+            root.after(0, lambda: listen_button.configure(state=("normal" if enabled else "disabled")))
+        except Exception:
+            # Ignore UI errors coming from async callbacks
+            pass
+
+    try:
+        robot.set_listen_button_enabled_callback(_set_listen_button_enabled)
+    except Exception:
+        # If the robot module doesn't provide the callback setter for
+        # backwards compatibility, ignore.
+        pass
+
+    # Apply initial state based on whether robot is currently speaking.
+    try:
+        if getattr(robot, "is_speaking", False):
+            listen_button.configure(state="disabled")
+    except Exception:
+        pass
+
     def refresh_model_list() -> None:
         try:
             models = chatbot.list_models()
