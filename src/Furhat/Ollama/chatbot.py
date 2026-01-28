@@ -2,7 +2,10 @@ import logging
 
 import ollama
 
-from . import config
+try:
+    from . import config
+except ImportError:
+    import config
 
 logger = logging.getLogger(__name__)
 

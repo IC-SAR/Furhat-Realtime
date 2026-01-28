@@ -271,10 +271,8 @@ async def speak_from_prompt(prompt: str) -> None:
         except Exception:
             logger.exception("Error calling listen_button_callback at session start")
 
-        say_text = Ollama.get_response_by_punctuation(prompt)
-        for chunk in say_text:
-            logger.debug("Speak chunk: %s", chunk)
-            await furhat.request_speak_text(chunk, wait=True)
+        say_text = Ollama.get_full_response(prompt)
+        await furhat.request_speak_text(say_text, wait=False)
     finally:
         # Session finished — allow the UI to re-enable the listen button.
         speech_session_active = False
