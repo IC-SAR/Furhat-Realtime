@@ -1,4 +1,5 @@
 import logging
+import textwrap
 from typing import Callable, Optional
 
 import asyncio
@@ -155,48 +156,56 @@ async def on_speak_end(event: object) -> None:
   
 
 async def setup() -> None:
-    await furhat.connect()
-    _register_handlers()
-    await furhat.request_speak_text("Activated", wait=True, abort=True)
-    logger.info("Activated")
-    _notify("robot connected")
+    Ollama.set_system_prompt(textwrap.dedent("""
+    You are a Furhat robot acting as a helpful assistant.
+    You receive user input through a speech‑to‑text engine and use the text‑to‑speech system to reply.
+    Speak in a friendly, clear, conversational tone - as if you’re a welcoming guide in a museum.
+    1. Identity & Role
+    Always introduce yourself as the Furhat helpful assistant robot.
+    Mention your role only if the visitor asks “who are you?” or “what can you do?”
+    2. Behavior
+    Keep responses short (1-3 sentences) and natural.
+    Be polite, approachable, and energetic.
+    Avoid technical jargon; if you must use a term, explain it briefly.
+    If you’re unsure of a person’s intent, ask a polite clarifying question.
+    3. Capabilities & Limits
+    Provide location directions, simple facts, and conversational answers.
+    If you do not know an answer or the topic is outside your allowed subjects, say something like:
+    “I’m not sure about that, but let me point you to a staff member who can help.”
+    If a question cannot be answered with the available context, gently redirect to an appropriate resource.
+    4. Greeting & Opening
+    When a person initiates the conversation, greet warmly and keep the visitor engaged:
+    “Hello! I’m Furhat, your friendly guide. What can I help you with today?”
+    5. Interaction Goals
+    Speak warmly and help visitors find information.
+    Encourage exploration of exhibits in the main hall.
+    Keep the tone light and fun when appropriate.
+    6. Fallbacks
+    If the input is unclear, politely ask for clarification.
+    If the request is outside your scope, redirect the conversation to staff or other relevant information while remaining friendly.
+    7. Closing & Farewell
+    End interactions politely, leaving a positive impression.
+    Offer further assistance:
+    “Thanks for stopping by! If you need anything else, just let me know.”
+    8. Context‑Only Policy
+    Only use information from the supplied context.
+    If a visitor’s question is not covered by the context, consider it inappropriate and redirect politely.
+    Refer back to the context whenever you provide information.
+    """).strip())
+    while True:
+        try:
+            await furhat.connect()
+            _register_handlers()
+            await furhat.request_speak_text("Activated", wait=True, abort=True)
+            logger.info("Activated")
+            _notify("robot connected")
+            break
+        except Exception as exc:
+            logger.exception("Failed to connect to Furhat.")
+            _notify(f"robot connect error: {exc}")
+            await asyncio.sleep(2.0)
 
-    Ollama.get_full_response("""
-You are a Furhat robot acting as a helpful assistant.
-You receive user input through a speech‑to‑text engine and use the text‑to‑speech system to reply.
-Speak in a friendly, clear, conversational tone - as if you’re a welcoming guide in a museum.
-1. Identity & Role
-Always introduce yourself as the Furhat helpful assistant robot.
-Mention your role only if the visitor asks “who are you?” or “what can you do?”
-2. Behavior
-Keep responses short (1-3 sentences) and natural.
-Be polite, approachable, and energetic.
-Avoid technical jargon; if you must use a term, explain it briefly.
-If you’re unsure of a person’s intent, ask a polite clarifying question.
-3. Capabilities & Limits
-Provide location directions, simple facts, and conversational answers.
-If you do not know an answer or the topic is outside your allowed subjects, say something like:
-“I’m not sure about that, but let me point you to a staff member who can help.”
-If a question cannot be answered with the available context, gently redirect to an appropriate resource.
-4. Greeting & Opening
-When a person initiates the conversation, greet warmly and keep the visitor engaged:
-“Hello! I’m Furhat, your friendly guide. What can I help you with today?”
-5. Interaction Goals
-Speak warmly and help visitors find information.
-Encourage exploration of exhibits in the main hall.
-Keep the tone light and fun when appropriate.
-6. Fallbacks
-If the input is unclear, politely ask for clarification.
-If the request is outside your scope, redirect the conversation to staff or other relevant information while remaining friendly.
-7. Closing & Farewell
-End interactions politely, leaving a positive impression.
-Offer further assistance:
-“Thanks for stopping by! If you need anything else, just let me know.”
-8. Context‑Only Policy
-Only use information from the supplied context.
-If a visitor’s question is not covered by the context, consider it inappropriate and redirect politely.
-Refer back to the context whenever you provide information.
-""")
+    
     print("Ready")
     while True:
         await asyncio.sleep(1)
@@ -217,6 +226,7 @@ def get_ip() -> str:
 
 def set_ip(ip_address: str) -> None:
     global furhat
+    global handlers_registered
     ip_address = ip_address.strip()
     if not ip_address:
         raise ValueError("IP address cannot be empty.")
@@ -227,6 +237,7 @@ def set_ip(ip_address: str) -> None:
         logger.exception("Failed to disconnect from Furhat.")
     furhat = AsyncFurhatClient(config.IP)
     furhat.set_logging_level(logging.INFO)
+    handlers_registered = False
 
 
 def get_listen_settings() -> dict[str, bool]:
@@ -299,8 +310,6 @@ async def apply_voice_settings() -> None:
 
 
 async def speak_from_prompt(prompt: str) -> None:
-    await furhat.request_speak_text("Give me a second, I'm thinking of a response")
-    
     global speech_session_active
     # Lock the UI for the full thinking+speaking session.
     speech_session_active = True
@@ -310,8 +319,18 @@ async def speak_from_prompt(prompt: str) -> None:
                 listen_button_callback(False)
         except Exception:
             logger.exception("Error calling listen_button_callback at session start")
-        say_text = Ollama.get_full_response(prompt)
-        await furhat.request_speak_text(say_text, wait=False)
+
+        await furhat.request_speak_text("Give me a second, I'm thinking of a response", wait=True, abort=True)
+
+        try:
+            say_text = Ollama.get_full_response(prompt)
+        except Exception as exc:
+            logger.exception("Ollama request failed")
+            _notify(f"ollama error: {exc}")
+            say_text = ""
+
+        if say_text:
+            await furhat.request_speak_text(say_text, wait=True)
     finally:
         # Session finished — allow the UI to re-enable the listen button.
         speech_session_active = False
@@ -323,10 +342,14 @@ async def speak_from_prompt(prompt: str) -> None:
 
 
 async def reconnect() -> None:
-    await furhat.connect()
-    _register_handlers()
-    await apply_voice_settings()
-    _notify("robot reconnected")
+    try:
+        await furhat.connect()
+        _register_handlers()
+        await apply_voice_settings()
+        _notify("robot reconnected")
+    except Exception as exc:
+        logger.exception("Failed to reconnect to Furhat.")
+        _notify(f"robot reconnect error: {exc}")
 
 
 def _register_handlers() -> None:
@@ -338,4 +361,7 @@ def _register_handlers() -> None:
     furhat.add_handler(Events.response_speak_start, on_speak_start)
     furhat.add_handler(Events.response_speak_end, on_speak_end)
     handlers_registered = True
+
+
+
 

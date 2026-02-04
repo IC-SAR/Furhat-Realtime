@@ -1,4 +1,6 @@
 import logging
+import re
+from typing import Generator
 
 import ollama
 
@@ -8,6 +10,8 @@ except ImportError:
     import config
 
 logger = logging.getLogger(__name__)
+
+system_prompt: str | None = None
 
 
 def check_for_model(model: str) -> None:
@@ -30,7 +34,6 @@ client = ollama.Client()
 messages: list[dict[str, str]] = []
 current_model: str = config.DEFAULT_MODEL
 current_temperature: float = config.DEFAULT_TEMPERATURE
-check_for_model(current_model)
 
 
 def set_model(model: str) -> None:
@@ -64,4 +67,95 @@ def list_models() -> list[str]:
 
 def clear_messages() -> None:
     messages.clear()
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+
+
+def set_system_prompt(prompt: str) -> None:
+    global system_prompt
+    prompt = prompt.strip()
+    system_prompt = prompt or None
+    _ensure_system_prompt()
+
+
+def _ensure_system_prompt() -> None:
+    if not system_prompt:
+        return
+    non_system = [m for m in messages if m.get("role") != "system"]
+    messages[:] = [{"role": "system", "content": system_prompt}, *non_system]
+
+
+def get_full_response(prompt: str) -> str:
+    _ensure_system_prompt()
+    messages.append({"role": "user", "content": prompt})
+    stream = client.chat(
+        model=current_model,
+        messages=messages,
+        stream=False,
+        options={"temperature": current_temperature},
+    )
+    response = stream.message.content
+    if response:
+        messages.append({"role": "assistant", "content": response})
+    return response
+
+
+def get_response_by_token(prompt: str) -> Generator[str, None, None]:
+    """
+    Stream each token from the current Ollama model.
+
+    :param prompt: the message from the user
+    :type prompt: str
+    :return: Generator of every token
+    :rtype: Generator[str, None, None]
+    """
+    _ensure_system_prompt()
+    messages.append({"role": "user", "content": prompt})
+    full_response: str = ""
+    stream = client.chat(
+        model=current_model,
+        messages=messages,
+        stream=True,
+        options={"temperature": current_temperature},
+    )
+
+    for chunk in stream:
+        if "message" in chunk and "content" in chunk["message"]:
+            token = chunk["message"]["content"]
+            full_response += token
+            yield token
+
+    if full_response:
+        messages.append({"role": "assistant", "content": full_response})
+
+
+def get_response_by_regex(prompt: str, regex: str) -> Generator[str, None, None]:
+    """
+    Modification of get_response_by_token(), to split up the generation into
+    easier sections of text for furhat.
+    
+    :param prompt: the message from the user
+    :type prompt: str
+    :param regex: A regex to split send_token()
+    :type regex: str
+    :rtype: Generator[str, None. None]
+    """
+    buffer = ""
+    for token in get_response_by_token(prompt):
+        buffer += token
+        match = re.search(regex, buffer)
+        while match:
+            end_index = match.end()
+            sentence = buffer[:end_index]
+            yield sentence
+            buffer = buffer[end_index:]
+
+            match = re.search(regex, buffer)
+
+    if buffer:
+        yield re.sub(r"[^a-zA-Z0-9]", "", buffer)
+
+
+def get_response_by_punctuation(prompt: str) -> Generator[str, None, None]:
+    return get_response_by_regex(prompt, r"(?<=[.!?])\s+")
 

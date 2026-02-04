@@ -55,7 +55,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     )
     subtitle = tk.Label(
         canvas,
-        text="Hold to listen, release to speak",
+        text="Hold to listen (or press space), release to speak",
         fg="#cbd5f5",
         bg="#0f172a",
         font=("Trebuchet MS", 12),
@@ -67,6 +67,25 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         bg="#0f172a",
         font=("Trebuchet MS", 11),
     )
+    status_frame = tk.Frame(canvas, bg="#0f172a")
+    robot_state_var = tk.StringVar(value="Robot: connecting...")
+    ollama_state_var = tk.StringVar(value="Ollama: unknown")
+    robot_state_label = tk.Label(
+        status_frame,
+        textvariable=robot_state_var,
+        fg="#fbbf24",
+        bg="#0f172a",
+        font=("Trebuchet MS", 9, "bold"),
+    )
+    ollama_state_label = tk.Label(
+        status_frame,
+        textvariable=ollama_state_var,
+        fg="#94a3b8",
+        bg="#0f172a",
+        font=("Trebuchet MS", 9, "bold"),
+    )
+    robot_state_label.pack(side="left", padx=(0, 12))
+    ollama_state_label.pack(side="left")
 
     main_frame = tk.Frame(canvas, bg="#0f172a")
     left_panel = tk.Frame(main_frame, bg="#0f172a")
@@ -91,14 +110,16 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         font=("Trebuchet MS", 10),
     )
     manual_value = tk.StringVar(value="")
+    manual_placeholder = "Type a prompt and press Enter..."
     manual_entry = tk.Entry(
         controls_frame,
         textvariable=manual_value,
-        fg="#0f172a",
+        fg="#64748b",
         bg="#e2e8f0",
         width=28,
         relief="flat",
     )
+    manual_entry.insert(0, manual_placeholder)
     send_button = tk.Button(
         controls_frame,
         text="Send to AI",
@@ -125,7 +146,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     )
     listen_button = tk.Button(
         controls_frame,
-        text="Hold to Listen",
+        text="Hold to Listen (Space)",
         font=("Trebuchet MS", 14, "bold"),
         fg="#0f172a",
         bg="#fbbf24",
@@ -404,6 +425,14 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     def set_status(message: str, color: str = "#94a3b8") -> None:
         status.configure(text=f"Status: {message}", fg=color)
 
+    def set_robot_state(message: str, color: str) -> None:
+        robot_state_var.set(f"Robot: {message}")
+        robot_state_label.configure(fg=color)
+
+    def set_ollama_state(message: str, color: str) -> None:
+        ollama_state_var.set(f"Ollama: {message}")
+        ollama_state_label.configure(fg=color)
+
     def add_log(message: str) -> None:
         logs_text.configure(state="normal")
         logs_text.insert("end", message + "\n")
@@ -413,7 +442,17 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         logs_text.see("end")
         logs_text.configure(state="disabled")
 
-    robot.set_log_callback(lambda message: root.after(0, add_log, message))
+    def handle_robot_log(message: str) -> None:
+        add_log(message)
+        msg = message.lower()
+        if "robot connected" in msg:
+            set_robot_state("connected", "#4ade80")
+        elif "robot reconnected" in msg:
+            set_robot_state("reconnected", "#4ade80")
+        elif "robot disconnected" in msg:
+            set_robot_state("disconnected", "#f87171")
+
+    robot.set_log_callback(lambda message: root.after(0, handle_robot_log, message))
 
     # Use a thread-visible flag to track whether the listen button is
     # enabled. The callback updates this flag immediately (no Tk
@@ -450,9 +489,12 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
             models = chatbot.list_models()
         except Exception as exc:
             set_status(f"model list error: {exc}", "#f87171")
+            set_ollama_state("offline", "#f87171")
             models = []
         if not models:
             models = [chatbot.get_model()]
+        else:
+            set_ollama_state("ok", "#4ade80")
 
         menu = model_menu["menu"]
         menu.delete(0, "end")
@@ -463,6 +505,8 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         model_options.set("Select model")
 
     def on_button_press(event):
+        if isinstance(getattr(event, "widget", None), tk.Entry):
+            return
         # Ignore presses if the button is disabled
         try:
             if not listen_button_enabled:
@@ -479,6 +523,8 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
             ).start()
 
     def on_button_release(event):
+        if isinstance(getattr(event, "widget", None), tk.Entry):
+            return
         # Ignore releases if the button is disabled
         try:
             if not listen_button_enabled:
@@ -496,10 +542,11 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
 
     def send_prompt() -> None:
         prompt = manual_value.get().strip()
-        if not prompt:
+        if not prompt or prompt == manual_placeholder:
             set_status("prompt is empty", "#fbbf24")
             return
         manual_value.set("")
+        manual_entry.configure(fg="#0f172a")
         set_status("sending prompt...", "#38bdf8")
         if loop:
             asyncio.run_coroutine_threadsafe(robot.speak_from_prompt(prompt), loop)
@@ -547,6 +594,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
 
     def reconnect_robot() -> None:
         set_status("reconnecting...", "#fbbf24")
+        set_robot_state("connecting...", "#fbbf24")
         if loop:
             asyncio.run_coroutine_threadsafe(robot.reconnect(), loop)
         else:
@@ -612,6 +660,21 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
 
     listen_button.bind("<ButtonPress-1>", on_button_press)
     listen_button.bind("<ButtonRelease-1>", on_button_release)
+    root.bind_all("<KeyPress-space>", on_button_press)
+    root.bind_all("<KeyRelease-space>", on_button_release)
+    def _clear_placeholder(event) -> None:
+        if manual_value.get() == manual_placeholder:
+            manual_value.set("")
+            manual_entry.configure(fg="#0f172a")
+
+    def _restore_placeholder(event) -> None:
+        if not manual_value.get().strip():
+            manual_value.set(manual_placeholder)
+            manual_entry.configure(fg="#64748b")
+
+    manual_entry.bind("<FocusIn>", _clear_placeholder)
+    manual_entry.bind("<FocusOut>", _restore_placeholder)
+    manual_entry.bind("<Return>", lambda event: send_prompt())
     send_button.configure(command=send_prompt)
     clear_context_button.configure(command=clear_context)
     apply_button.configure(command=apply_settings)
@@ -622,6 +685,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     title_id = canvas.create_window(0, 0, anchor="center", window=title, width=320, height=36)
     subtitle_id = canvas.create_window(0, 0, anchor="center", window=subtitle, width=360, height=24)
     status_id = canvas.create_window(0, 0, anchor="center", window=status, width=280, height=24)
+    status_frame_id = canvas.create_window(0, 0, anchor="center", window=status_frame)
     main_id = canvas.create_window(0, 0, anchor="center", window=main_frame)
 
     controls_title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
@@ -678,6 +742,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         canvas.coords(title_id, width // 2, int(height * 0.08))
         canvas.coords(subtitle_id, width // 2, int(height * 0.13))
         canvas.coords(status_id, width // 2, int(height * 0.18))
+        canvas.coords(status_frame_id, width // 2, int(height * 0.23))
         canvas.coords(main_id, width // 2, int(height * 0.60))
 
     canvas.bind(
