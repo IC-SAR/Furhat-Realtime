@@ -35,7 +35,7 @@ class SVVSDScraper:
         # Skip common non-content files
         skip_extensions = ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.svg', 
                           '.css', '.js', '.ico', '.xml', '.zip', '.doc', '.docx']
-        if any(url.lower().endswith(ext) for ext in skip_extensions):
+        if any(url.lower().endswith(ext) for ext in skip_extensions) or "/es/" in url:
             return False
             
         return True
@@ -306,7 +306,7 @@ if __name__ == "__main__":
         base_url="https://innovation.svvsd.org/",
         #base_url="https://www.svvsd.org/",
         max_pages=999_999_999,  # Adjust based on needs
-        delay=0.1 # 2 second delay between requests
+        delay=0.001 # 2 second delay between requests
     )
     
     # Scrape the website
