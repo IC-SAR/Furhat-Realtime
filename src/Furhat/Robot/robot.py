@@ -381,7 +381,6 @@ async def notify_response_progress(interval = config.THINKING_RESPONSE_INTERVAL_
     try:
         while True:
             await asyncio.sleep(interval)
-            print("hi")
             asyncio.create_task(furhat.request_speak_text(random.choice(config.GENERATION_RESPONSES), wait=True))
     except asyncio.CancelledError:
         print("--- Notifier Stopped ---")
