@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from typing import Generator
 
@@ -12,11 +13,23 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 system_prompt: str | None = None
+_chat_model_ok: set[str] = set()
+MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "120"))
 
 
 def check_for_model(model: str) -> None:
     response = ollama.list()
-    installed_models = [item["model"] for item in response["models"]]
+    models = getattr(response, "models", None)
+    if models is None:
+        models = response.model_dump().get("models", [])
+    installed_models = []
+    for item in models:
+        if isinstance(item, dict):
+            name = item.get("model")
+        else:
+            name = getattr(item, "model", None)
+        if name:
+            installed_models.append(name)
     if model in installed_models:
         return
 
@@ -41,6 +54,7 @@ def set_model(model: str) -> None:
     if not model:
         raise ValueError("Model name cannot be empty.")
     check_for_model(model)
+    _validate_chat_model(model)
     global current_model
     current_model = model
 
@@ -62,7 +76,38 @@ def get_temperature() -> float:
 
 def list_models() -> list[str]:
     response = ollama.list()
-    return [item["model"] for item in response.get("models", [])]
+    models = getattr(response, "models", None)
+    if models is None:
+        models = response.model_dump().get("models", [])
+    names: list[str] = []
+    for item in models:
+        if isinstance(item, dict):
+            name = item.get("model")
+        else:
+            name = getattr(item, "model", None)
+        if name:
+            names.append(name)
+    return names
+
+
+def _validate_chat_model(model: str) -> None:
+    if model in _chat_model_ok:
+        return
+    try:
+        client.chat(
+            model=model,
+            messages=[{"role": "user", "content": "ping"}],
+            stream=False,
+            options={"num_predict": 1},
+        )
+    except ollama.ResponseError as exc:
+        message = str(exc).lower()
+        if "does not support chat" in message:
+            raise ValueError(
+                f"Model '{model}' does not support chat. Please select a chat model."
+            ) from exc
+        raise
+    _chat_model_ok.add(model)
 
 
 def clear_messages() -> None:
@@ -87,12 +132,13 @@ def _ensure_system_prompt() -> None:
 
 def get_full_response(prompt: str) -> str:
     _ensure_system_prompt()
+    _validate_chat_model(current_model)
     messages.append({"role": "user", "content": prompt})
     stream = client.chat(
         model=current_model,
         messages=messages,
         stream=False,
-        options={"temperature": current_temperature},
+        options={"temperature": current_temperature, "num_predict": MAX_TOKENS},
     )
     response = stream.message.content
     if response:
@@ -110,13 +156,14 @@ def get_response_by_token(prompt: str) -> Generator[str, None, None]:
     :rtype: Generator[str, None, None]
     """
     _ensure_system_prompt()
+    _validate_chat_model(current_model)
     messages.append({"role": "user", "content": prompt})
     full_response: str = ""
     stream = client.chat(
         model=current_model,
         messages=messages,
         stream=True,
-        options={"temperature": current_temperature},
+        options={"temperature": current_temperature, "num_predict": MAX_TOKENS},
     )
 
     for chunk in stream:

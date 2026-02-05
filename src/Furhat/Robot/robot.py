@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import textwrap
 import unicodedata
@@ -49,6 +50,8 @@ _last_connect_log_ts = 0.0
 CONNECT_RETRY_MIN_SEC = 2.0
 CONNECT_RETRY_MAX_SEC = 20.0
 CONNECT_LOG_INTERVAL_SEC = 10.0
+SPEAK_MAX_SENTENCES = int(os.getenv("SPEAK_MAX_SENTENCES", "3"))
+SPEAK_MAX_CHARS = int(os.getenv("SPEAK_MAX_CHARS", "500"))
 
 _MARKDOWN_PATTERNS = [
     (re.compile(r"```.*?```", re.DOTALL), ""),
@@ -74,6 +77,19 @@ def _sanitize_for_speech(text: str) -> str:
         ch for ch in cleaned if unicodedata.category(ch) not in {"So", "Cs"}
     )
     return cleaned.strip()
+
+
+def _shorten_for_speech(text: str) -> str:
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    if SPEAK_MAX_SENTENCES > 0 and len(sentences) > SPEAK_MAX_SENTENCES:
+        sentences = sentences[:SPEAK_MAX_SENTENCES]
+    shortened = " ".join(s for s in sentences if s)
+    if SPEAK_MAX_CHARS > 0 and len(shortened) > SPEAK_MAX_CHARS:
+        shortened = shortened[:SPEAK_MAX_CHARS].rsplit(" ", 1)[0].rstrip()
+        shortened = shortened + "..."
+    return shortened.strip()
 
 
 def set_log_callback(callback: Optional[Callable[[str], None]]) -> None:
@@ -202,7 +218,8 @@ async def setup() -> None:
     Always introduce yourself as the Furhat helpful assistant robot.
     Mention your role only if the visitor asks “who are you?” or “what can you do?”
     2. Behavior
-    Keep responses short (1-3 sentences) and natural.
+    Keep responses short (2-3 sentences) and natural.
+    Avoid bullet lists; summarize instead.
     Be polite, approachable, and energetic.
     Avoid technical jargon; if you must use a term, explain it briefly.
     If you’re unsure of a person’s intent, ask a polite clarifying question.
@@ -389,6 +406,7 @@ async def speak_from_prompt(prompt: str) -> None:
             say_text = ""
 
         if say_text:
+            say_text = _shorten_for_speech(say_text)
             say_text = _sanitize_for_speech(say_text)
         if say_text:
             await furhat.request_speak_text(say_text, wait=True)
