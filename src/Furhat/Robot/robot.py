@@ -376,6 +376,15 @@ async def apply_voice_settings() -> None:
     if hasattr(furhat, "request_set_voice_parameters"):
         await furhat.request_set_voice_parameters(rate=voice_rate, volume=voice_volume)
 
+async def notify_response_progress(interval):
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            print("hi")
+            asyncio.create_task(furhat.request_speak_text("Give me a second, I'm thinking of a response", wait=True))
+    except asyncio.CancelledError:
+        print("--- Notifier Stopped ---")
+        raise
 
 async def speak_from_prompt(prompt: str) -> None:
     global speech_session_active
@@ -388,10 +397,11 @@ async def speak_from_prompt(prompt: str) -> None:
         except Exception:
             logger.exception("Error calling listen_button_callback at session start")
 
-        await furhat.request_speak_text("Give me a second, I'm thinking of a response", wait=True, abort=True)
+        asyncio.create_task(furhat.request_speak_text("Give me a second, I'm thinking of a response", wait=True))
+        notify_task = asyncio.create_task(notify_response_progress(5))
 
         try:
-            context = retriever.retrieve_context(prompt)
+            context = await retriever.retrieve_context(prompt)
         except Exception as exc:
             logger.warning("RAG retrieval failed: %s", exc)
             context = ""
@@ -399,11 +409,17 @@ async def speak_from_prompt(prompt: str) -> None:
         rag_prompt = prompting.build_prompt(prompt, context)
 
         try:
-            say_text = Ollama.get_full_response(rag_prompt)
+            say_text = await Ollama.get_full_response(rag_prompt)
         except Exception as exc:
             logger.exception("Ollama request failed")
             _notify(f"ollama error: {exc}")
             say_text = ""
+            
+        notify_task.cancel()
+        try:
+            await notify_task
+        except asyncio.CancelledError:
+            pass
 
         if say_text:
             say_text = _shorten_for_speech(say_text)

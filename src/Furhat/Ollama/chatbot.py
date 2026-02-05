@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import re
@@ -130,7 +131,11 @@ def _ensure_system_prompt() -> None:
     messages[:] = [{"role": "system", "content": system_prompt}, *non_system]
 
 
-def get_full_response(prompt: str) -> str:
+async def get_full_response(prompt: str) -> str:
+    # Offload the heavy network call to a background thread
+    return await asyncio.to_thread(_sync_get_full_response, prompt)
+
+def _sync_get_full_response(prompt: str) -> str:
     _ensure_system_prompt()
     _validate_chat_model(current_model)
     messages.append({"role": "user", "content": prompt})
