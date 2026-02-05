@@ -1,15 +1,20 @@
 import logging
+import re
 import textwrap
+import unicodedata
 from typing import Callable, Optional
 
 import asyncio
+import time
 from furhat_realtime_api import AsyncFurhatClient, Events
 
 try:
     from .. import Ollama
+    from ..RAG import prompting, retriever
 except ImportError:
     # Allow running as a script (python src/Furhat/main.py).
     import Ollama
+    from RAG import prompting, retriever
 from . import config
 
 
@@ -38,6 +43,37 @@ is_listening = False
 # When True, a full speak session (thinking + speaking) is active and
 # the UI should keep the listen button disabled for the whole session.
 speech_session_active = False
+_last_connect_error: str | None = None
+_last_connect_log_ts = 0.0
+
+CONNECT_RETRY_MIN_SEC = 2.0
+CONNECT_RETRY_MAX_SEC = 20.0
+CONNECT_LOG_INTERVAL_SEC = 10.0
+
+_MARKDOWN_PATTERNS = [
+    (re.compile(r"```.*?```", re.DOTALL), ""),
+    (re.compile(r"`([^`]*)`"), r"\1"),
+    (re.compile(r"!\[[^\]]*\]\([^\)]*\)"), ""),
+    (re.compile(r"\[(.*?)\]\([^\)]*\)"), r"\1"),
+    (re.compile(r"\*\*(.*?)\*\*"), r"\1"),
+    (re.compile(r"__(.*?)__"), r"\1"),
+    (re.compile(r"\*(.*?)\*"), r"\1"),
+    (re.compile(r"_(.*?)_"), r"\1"),
+]
+
+
+def _sanitize_for_speech(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = text
+    for pattern, repl in _MARKDOWN_PATTERNS:
+        cleaned = pattern.sub(repl, cleaned)
+    cleaned = re.sub(r"^\s*[-*+]\s+", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = "".join(
+        ch for ch in cleaned if unicodedata.category(ch) not in {"So", "Cs"}
+    )
+    return cleaned.strip()
 
 
 def set_log_callback(callback: Optional[Callable[[str], None]]) -> None:
@@ -194,6 +230,7 @@ async def setup() -> None:
     If a visitor’s question is not covered by the context, consider it inappropriate and redirect politely.
     Refer back to the context whenever you provide information.
     """).strip())
+    retry_delay = CONNECT_RETRY_MIN_SEC
     while True:
         try:
             await furhat.connect()
@@ -202,10 +239,22 @@ async def setup() -> None:
             logger.info("Activated")
             _notify("robot connected")
             break
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
-            logger.exception("Failed to connect to Furhat.")
-            _notify(f"robot connect error: {exc}")
-            await asyncio.sleep(2.0)
+            error_key = f"{type(exc).__name__}:{exc}"
+            now = time.monotonic()
+            should_log = (
+                error_key != _last_connect_error
+                or (now - _last_connect_log_ts) > CONNECT_LOG_INTERVAL_SEC
+            )
+            if should_log:
+                logger.warning("Failed to connect to Furhat: %s", exc)
+                _notify(f"robot connect error: {exc}")
+                globals()["_last_connect_error"] = error_key
+                globals()["_last_connect_log_ts"] = now
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(CONNECT_RETRY_MAX_SEC, retry_delay * 1.5)
 
     
     print("Ready")
@@ -325,12 +374,22 @@ async def speak_from_prompt(prompt: str) -> None:
         await furhat.request_speak_text("Give me a second, I'm thinking of a response", wait=True, abort=True)
 
         try:
-            say_text = Ollama.get_full_response(prompt)
+            context = retriever.retrieve_context(prompt)
+        except Exception as exc:
+            logger.warning("RAG retrieval failed: %s", exc)
+            context = ""
+
+        rag_prompt = prompting.build_prompt(prompt, context)
+
+        try:
+            say_text = Ollama.get_full_response(rag_prompt)
         except Exception as exc:
             logger.exception("Ollama request failed")
             _notify(f"ollama error: {exc}")
             say_text = ""
 
+        if say_text:
+            say_text = _sanitize_for_speech(say_text)
         if say_text:
             await furhat.request_speak_text(say_text, wait=True)
     finally:
@@ -349,8 +408,10 @@ async def reconnect() -> None:
         _register_handlers()
         await apply_voice_settings()
         _notify("robot reconnected")
+    except asyncio.CancelledError:
+        raise
     except Exception as exc:
-        logger.exception("Failed to reconnect to Furhat.")
+        logger.warning("Failed to reconnect to Furhat: %s", exc)
         _notify(f"robot reconnect error: {exc}")
 
 

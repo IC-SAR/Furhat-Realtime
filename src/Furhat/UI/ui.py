@@ -451,6 +451,8 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
             set_robot_state("reconnected", "#4ade80")
         elif "robot disconnected" in msg:
             set_robot_state("disconnected", "#f87171")
+        elif "robot connect error" in msg or "robot reconnect error" in msg:
+            set_robot_state("error", "#f87171")
 
     robot.set_log_callback(lambda message: root.after(0, handle_robot_log, message))
 
@@ -458,6 +460,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     # enabled. The callback updates this flag immediately (no Tk
     # operations), and schedules the actual Tk change via `root.after`.
     listen_button_enabled = True
+    space_is_down = False
 
     def _set_listen_button_enabled(enabled: bool) -> None:
         nonlocal listen_button_enabled
@@ -539,6 +542,20 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
             threading.Thread(
                 target=lambda: asyncio.run(robot.on_listen_deactivate()), daemon=True
             ).start()
+
+    def on_space_press(event):
+        nonlocal space_is_down
+        if space_is_down:
+            return
+        space_is_down = True
+        on_button_press(event)
+
+    def on_space_release(event):
+        nonlocal space_is_down
+        if not space_is_down:
+            return
+        space_is_down = False
+        on_button_release(event)
 
     def send_prompt() -> None:
         prompt = manual_value.get().strip()
@@ -660,8 +677,8 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
 
     listen_button.bind("<ButtonPress-1>", on_button_press)
     listen_button.bind("<ButtonRelease-1>", on_button_release)
-    root.bind_all("<KeyPress-space>", on_button_press)
-    root.bind_all("<KeyRelease-space>", on_button_release)
+    root.bind_all("<KeyPress-space>", on_space_press)
+    root.bind_all("<KeyRelease-space>", on_space_release)
     def _clear_placeholder(event) -> None:
         if manual_value.get() == manual_placeholder:
             manual_value.set("")
@@ -749,9 +766,15 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         "<Configure>",
         lambda event: (draw_gradient(event), position_elements(event)),
     )
+    canvas.bind(
+        "<Button-1>",
+        lambda event: listen_button.focus_set(),
+        add=True,
+    )
 
     load_settings()
     refresh_model_list()
     set_status("idle")
+    root.after(200, listen_button.focus_set)
 
     return root
