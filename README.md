@@ -29,3 +29,11 @@ Tkinter UI to hold-to-listen and stream responses back to the robot.
 ## Configuration
 - `src/Furhat/Ollama/config.py` sets the default model name.
 - `src/Furhat/Robot/config.py` sets the robot IP and timeouts.
+
+## Optional: Local RAG (TXT files)
+1. Put your `.txt` files in `data/`.
+2. Build the index:
+   ```powershell
+   python .\scripts\build_index.py
+   ```
+3. Run the app as usual. If an index exists, the robot will use it.
