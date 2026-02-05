@@ -1,5 +1,6 @@
 import logging
 import os
+import random
 import re
 import textwrap
 import unicodedata
@@ -139,7 +140,7 @@ async def on_listen_activate() -> None:
 
 async def on_listen_deactivate() -> None:
     logger.info("Preparing to not listen")
-    await asyncio.sleep(1)
+    await asyncio.sleep(config.USER_LETGO_DEBOUNCER_SECONDS)
     logger.info("Not listening...")
     _notify("listening stopped")
     global is_listening
@@ -376,12 +377,12 @@ async def apply_voice_settings() -> None:
     if hasattr(furhat, "request_set_voice_parameters"):
         await furhat.request_set_voice_parameters(rate=voice_rate, volume=voice_volume)
 
-async def notify_response_progress(interval):
+async def notify_response_progress(interval = config.THINKING_RESPONSE_INTERVAL_SECONDS):
     try:
         while True:
             await asyncio.sleep(interval)
             print("hi")
-            asyncio.create_task(furhat.request_speak_text("Give me a second, I'm thinking of a response", wait=True))
+            asyncio.create_task(furhat.request_speak_text(random.choice(config.GENERATION_RESPONSES), wait=True))
     except asyncio.CancelledError:
         print("--- Notifier Stopped ---")
         raise
@@ -397,7 +398,6 @@ async def speak_from_prompt(prompt: str) -> None:
         except Exception:
             logger.exception("Error calling listen_button_callback at session start")
 
-        asyncio.create_task(furhat.request_speak_text("Give me a second, I'm thinking of a response", wait=True))
         notify_task = asyncio.create_task(notify_response_progress(5))
 
         try:
@@ -425,7 +425,7 @@ async def speak_from_prompt(prompt: str) -> None:
             say_text = _shorten_for_speech(say_text)
             say_text = _sanitize_for_speech(say_text)
         if say_text:
-            await furhat.request_speak_text(say_text, wait=True)
+            asyncio.create_task(furhat.request_speak_text(say_text, wait=True))
     finally:
         # Session finished — allow the UI to re-enable the listen button.
         speech_session_active = False
