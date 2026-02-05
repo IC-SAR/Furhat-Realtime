@@ -86,6 +86,8 @@ async def on_listen_activate() -> None:
 
 
 async def on_listen_deactivate() -> None:
+    logger.info("Preparing to not listen")
+    asyncio.sleep(1)
     logger.info("Not listening...")
     _notify("listening stopped")
     global is_listening
