@@ -1,5 +1,6 @@
 import logging
 import os
+import random
 import re
 import textwrap
 import unicodedata
@@ -52,6 +53,17 @@ CONNECT_RETRY_MAX_SEC = 20.0
 CONNECT_LOG_INTERVAL_SEC = 10.0
 SPEAK_MAX_SENTENCES = int(os.getenv("SPEAK_MAX_SENTENCES", "3"))
 SPEAK_MAX_CHARS = int(os.getenv("SPEAK_MAX_CHARS", "500"))
+SPEAK_THINKING = os.getenv("SPEAK_THINKING", "1").lower() in {"1", "true", "yes", "y", "on"}
+THINKING_DELAY_SEC = float(os.getenv("THINKING_DELAY_SEC", "0.6"))
+SPEAK_WAIT_TIMEOUT = float(os.getenv("SPEAK_WAIT_TIMEOUT", "20"))
+THINKING_WAIT_TIMEOUT = float(os.getenv("THINKING_WAIT_TIMEOUT", "8"))
+OLLAMA_RESPONSE_TIMEOUT = float(os.getenv("OLLAMA_RESPONSE_TIMEOUT", "20"))
+THINKING_PHRASES = [
+    "One moment while I think.",
+    "Let me think about that.",
+    "Give me a second.",
+    "Thinking...",
+]
 
 _MARKDOWN_PATTERNS = [
     (re.compile(r"```.*?```", re.DOTALL), ""),
@@ -115,6 +127,29 @@ def _event_text(event: object) -> str:
     return getattr(event, "text", str(event))
 
 
+async def _speak_text_safe(
+    text: str,
+    *,
+    wait: bool = True,
+    abort: bool = False,
+    timeout: Optional[float] = None,
+) -> None:
+    try:
+        speak_coro = furhat.request_speak_text(text, wait=wait, abort=abort)
+        if wait and timeout and timeout > 0:
+            await asyncio.wait_for(speak_coro, timeout=timeout)
+        else:
+            await speak_coro
+    except asyncio.TimeoutError:
+        logger.warning("Timed out waiting for speech to finish.")
+        _notify("speech timeout")
+        if hasattr(furhat, "request_speak_stop"):
+            try:
+                await furhat.request_speak_stop()
+            except Exception:
+                logger.exception("Failed to stop speech after timeout.")
+
+
 async def on_listen_activate() -> None:
     logger.info("Listening...")
     _notify("listening started")
@@ -138,8 +173,6 @@ async def on_listen_activate() -> None:
 
 
 async def on_listen_deactivate() -> None:
-    logger.info("Preparing to not listen")
-    await asyncio.sleep(1)
     logger.info("Not listening...")
     _notify("listening stopped")
     global is_listening
@@ -252,7 +285,7 @@ async def setup() -> None:
         try:
             await furhat.connect()
             _register_handlers()
-            await furhat.request_speak_text("Activated", wait=True, abort=True)
+            await _speak_text_safe("Activated", wait=True, abort=True, timeout=10)
             logger.info("Activated")
             _notify("robot connected")
             break
@@ -280,10 +313,21 @@ async def setup() -> None:
     
 
 
+async def _async_disconnect() -> None:
+    await furhat.disconnect()
+
+
 def disconnect() -> None:
     try:
-        furhat.disconnect()
+        asyncio.run(_async_disconnect())
         _notify("robot disconnected")
+    except RuntimeError:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_async_disconnect())
+            _notify("robot disconnected")
+        except Exception:
+            logger.exception("Failed to schedule Furhat disconnect.")
     except Exception:
         logger.exception("Failed to disconnect from Furhat.")
 
@@ -300,7 +344,13 @@ def set_ip(ip_address: str) -> None:
         raise ValueError("IP address cannot be empty.")
     config.IP = ip_address
     try:
-        furhat.disconnect()
+        asyncio.run(_async_disconnect())
+    except RuntimeError:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_async_disconnect())
+        except Exception:
+            logger.exception("Failed to schedule Furhat disconnect.")
     except Exception:
         logger.exception("Failed to disconnect from Furhat.")
     furhat = AsyncFurhatClient(config.IP)
@@ -388,7 +438,20 @@ async def speak_from_prompt(prompt: str) -> None:
         except Exception:
             logger.exception("Error calling listen_button_callback at session start")
 
-        await furhat.request_speak_text("Give me a second, I'm thinking of a response", wait=True, abort=True)
+        response_ready = asyncio.Event()
+        thinking_task = None
+        if SPEAK_THINKING and THINKING_PHRASES:
+            async def _maybe_think() -> None:
+                await asyncio.sleep(max(0.0, THINKING_DELAY_SEC))
+                if not response_ready.is_set():
+                    await _speak_text_safe(
+                        random.choice(THINKING_PHRASES),
+                        wait=True,
+                        abort=True,
+                        timeout=THINKING_WAIT_TIMEOUT,
+                    )
+
+            thinking_task = asyncio.create_task(_maybe_think())
 
         try:
             context = retriever.retrieve_context(prompt)
@@ -399,17 +462,32 @@ async def speak_from_prompt(prompt: str) -> None:
         rag_prompt = prompting.build_prompt(prompt, context)
 
         try:
-            say_text = Ollama.get_full_response(rag_prompt)
+            say_text = await asyncio.wait_for(
+                asyncio.to_thread(Ollama.get_full_response, rag_prompt),
+                timeout=OLLAMA_RESPONSE_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Ollama request timed out.")
+            _notify("ollama timeout")
+            say_text = ""
         except Exception as exc:
             logger.exception("Ollama request failed")
             _notify(f"ollama error: {exc}")
             say_text = ""
+        finally:
+            response_ready.set()
+            if thinking_task and not thinking_task.done():
+                thinking_task.cancel()
+                try:
+                    await thinking_task
+                except asyncio.CancelledError:
+                    pass
 
         if say_text:
             say_text = _shorten_for_speech(say_text)
             say_text = _sanitize_for_speech(say_text)
         if say_text:
-            await furhat.request_speak_text(say_text, wait=True)
+            await _speak_text_safe(say_text, wait=True, timeout=SPEAK_WAIT_TIMEOUT)
     finally:
         # Session finished — allow the UI to re-enable the listen button.
         speech_session_active = False
