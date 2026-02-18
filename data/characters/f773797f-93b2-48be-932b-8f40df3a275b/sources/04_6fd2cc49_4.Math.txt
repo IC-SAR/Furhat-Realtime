@@ -1,0 +1,41 @@
+## 4) Inequalities (Math) ➗
+
+**Skill Focus:** Logical reasoning, math language, verbal explanation
+
+**Game Concept – “Greater Than Quest”**
+Students solve and explain inequalities.
+
+**Prompt Types:**
+
+- Solve: `x + 3 > 7`
+- Interpret: “What does this solution mean?”
+- Compare: “Which side is larger and why?”
+
+**Furhat Prompts:**
+
+- “What number makes this statement true?”
+- “How would you show this on a number line?”
+
+**Checks & Feedback:**
+
+- “Yes—notice how the arrow points right.”
+- “Careful! What happens when you divide by a negative?”
+
+
+### Solve the Inequality
+
+x + 3 > 7
+➡️ x > 4
+
+### nterpretation
+
+“Any number greater than 4 makes the inequality true.”
+
+### Number Line Representation
+
+	•	Open circle at 4
+	•	Arrow pointing to the right
+
+### Rule-Based Answer
+
+	•	Dividing or multiplying by a negative number flips the inequality sign

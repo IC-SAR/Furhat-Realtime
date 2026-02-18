@@ -100,6 +100,13 @@ def reload_index() -> Optional[RagIndex]:
     return get_index()
 
 
+def set_index_path(path: Path) -> None:
+    global INDEX_PATH, _INDEX, _INDEX_CHECKED
+    INDEX_PATH = Path(path)
+    _INDEX = None
+    _INDEX_CHECKED = False
+
+
 def retrieve_context(query: str, k: int = TOP_K, max_chars: int = MAX_CONTEXT_CHARS) -> str:
     index = get_index()
     if index is None:
