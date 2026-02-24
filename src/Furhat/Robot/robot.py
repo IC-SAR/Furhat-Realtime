@@ -289,10 +289,11 @@ async def on_speak_end(event: object) -> None:
     global is_speaking
     is_speaking = False
     # Inform UI to re-enable the listen button when speaking ends, but
-    # avoid re-enabling if a full speech session is active (that will
-    # re-enable when the session completes).
+    # re-enable immediately so users can press the button right after
+    # speech finishes (the full session end will also call the callback
+    # when appropriate).
     try:
-        if listen_button_callback and not speech_session_active:
+        if listen_button_callback:
             listen_button_callback(True)
     except Exception:
         logger.exception("Error calling listen_button_callback on speak end")
