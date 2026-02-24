@@ -67,6 +67,8 @@ THINKING_DELAY_SEC = float(os.getenv("THINKING_DELAY_SEC", "0.6"))
 SPEAK_WAIT_TIMEOUT = float(os.getenv("SPEAK_WAIT_TIMEOUT", "20"))
 THINKING_WAIT_TIMEOUT = float(os.getenv("THINKING_WAIT_TIMEOUT", "8"))
 OLLAMA_RESPONSE_TIMEOUT = float(os.getenv("OLLAMA_RESPONSE_TIMEOUT", "20"))
+RAG_RETRIEVAL_TIMEOUT = float(os.getenv("RAG_RETRIEVAL_TIMEOUT", "10"))
+OLLAMA_MAX_CONCURRENT = max(1, int(os.getenv("OLLAMA_MAX_CONCURRENT", "1")))
 DISCONNECT_TIMEOUT = float(os.getenv("FURHAT_DISCONNECT_TIMEOUT", "3"))
 THINKING_PHRASES = [
     "One moment while I think.",
@@ -74,6 +76,7 @@ THINKING_PHRASES = [
     "Give me a second.",
     "Thinking...",
 ]
+_OLLAMA_SEMAPHORE = asyncio.Semaphore(OLLAMA_MAX_CONCURRENT)
 
 _MARKDOWN_PATTERNS = [
     (re.compile(r"```.*?```", re.DOTALL), ""),
@@ -356,6 +359,7 @@ async def setup() -> None:
         try:
             await furhat.connect()
             _register_handlers()
+            await apply_voice_settings()
             if character_voice_id:
                 try:
                     set_voice_settings(character_voice_id, voice_rate, voice_volume)
@@ -543,7 +547,14 @@ async def speak_from_prompt(prompt: str) -> None:
             thinking_task = asyncio.create_task(_maybe_think())
 
         try:
-            context = retriever.retrieve_context(prompt)
+            context = await asyncio.wait_for(
+                asyncio.to_thread(retriever.retrieve_context, prompt),
+                timeout=RAG_RETRIEVAL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("RAG retrieval timed out.")
+            _notify("rag timeout")
+            context = ""
         except Exception as exc:
             logger.warning("RAG retrieval failed: %s", exc)
             context = ""
@@ -551,10 +562,11 @@ async def speak_from_prompt(prompt: str) -> None:
         rag_prompt = prompting.build_prompt(prompt, context)
 
         try:
-            say_text = await asyncio.wait_for(
-                asyncio.to_thread(Ollama.get_full_response, rag_prompt),
-                timeout=OLLAMA_RESPONSE_TIMEOUT,
-            )
+            async with _OLLAMA_SEMAPHORE:
+                say_text = await asyncio.wait_for(
+                    asyncio.to_thread(Ollama.get_full_response, rag_prompt),
+                    timeout=OLLAMA_RESPONSE_TIMEOUT,
+                )
         except asyncio.TimeoutError:
             logger.warning("Ollama request timed out.")
             _notify("ollama timeout")

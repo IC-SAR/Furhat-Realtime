@@ -23,6 +23,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CHARACTER_ENV_VARS = ("FURHAT_CHARACTER_FILE", "CHARACTER_FILE")
 DEFAULT_CHAR_DIR = PROJECT_ROOT / "data" / "characters"
 DEFAULT_TIMEOUT = 15
+RAG_REFRESH_DAYS = float(os.getenv("RAG_REFRESH_DAYS", "0"))
+RAG_FORCE_REFRESH = os.getenv("RAG_FORCE_REFRESH", "0").lower() in {"1", "true", "yes", "y", "on"}
 
 
 @dataclass
@@ -131,7 +133,26 @@ def _links_match(manifest: Path, links: list[str]) -> bool:
         data = json.loads(manifest.read_text(encoding="utf-8"))
     except Exception:
         return False
+    if RAG_FORCE_REFRESH:
+        return False
+    if RAG_REFRESH_DAYS > 0:
+        built_at = float(data.get("built_at", 0))
+        if built_at <= 0:
+            return False
+        max_age = RAG_REFRESH_DAYS * 86400
+        if (time.time() - built_at) > max_age:
+            return False
     return data.get("links") == links
+
+
+def _clear_sources(dest: Path) -> None:
+    if not dest.exists():
+        return
+    for path in dest.glob("*.txt"):
+        try:
+            path.unlink()
+        except Exception:
+            continue
 
 
 def _download_sources(links: list[str], dest: Path, notify: Optional[Callable[[str], None]]) -> None:
@@ -143,8 +164,6 @@ def _download_sources(links: list[str], dest: Path, notify: Optional[Callable[[s
         digest = hashlib.sha1(raw_link.encode("utf-8")).hexdigest()[:8]
         filename = f"{idx:02d}_{digest}_{stem}.txt"
         path = dest / filename
-        if path.exists():
-            continue
         try:
             text = _fetch_text(raw_link)
         except Exception as exc:
@@ -167,6 +186,7 @@ def _prepare_character_rag_sync(character_path: Path, notify: Optional[Callable[
     needs_build = not index_path.exists() or not _links_match(manifest_path, character.external_links)
     if needs_build:
         _notify(notify, f"Building RAG index for '{character.name}'...")
+        _clear_sources(sources_dir)
         _download_sources(character.external_links, sources_dir, notify)
         try:
             entries = builder.build_index(
