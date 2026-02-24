@@ -15,11 +15,13 @@ from furhat_realtime_api import AsyncFurhatClient, Events
 
 try:
     from .. import Ollama
+    from .. import paths
     from ..Character import loader as character_loader
     from ..RAG import prompting, retriever
 except ImportError:
     # Allow running as a script (python src/Furhat/main.py).
     import Ollama
+    import paths
     from Character import loader as character_loader
     from RAG import prompting, retriever
 from . import config
@@ -46,6 +48,7 @@ voice_volume = 1.0
 character_opening_line = ""
 character_voice_id = ""
 character_name = ""
+character_path = ""
 hear_end_event = asyncio.Event()
 handlers_registered = False
 is_speaking = False
@@ -55,7 +58,7 @@ is_listening = False
 speech_session_active = False
 _last_connect_error: str | None = None
 _last_connect_log_ts = 0.0
-SETTINGS_PATH = Path(__file__).resolve().parents[1] / "settings.json"
+SETTINGS_PATH = paths.get_settings_path()
 
 CONNECT_RETRY_MIN_SEC = 2.0
 CONNECT_RETRY_MAX_SEC = 20.0
@@ -181,6 +184,19 @@ def _load_settings_from_file() -> None:
             )
         except Exception as exc:
             logger.warning("Failed to apply voice settings: %s", exc)
+
+
+def get_character_info() -> dict[str, str]:
+    return {
+        "path": character_path,
+        "name": character_name,
+        "voice_id": character_voice_id,
+        "opening_line": character_opening_line,
+    }
+
+
+def get_character_path() -> str:
+    return character_path
 
 
 async def _speak_text_safe(
@@ -350,6 +366,7 @@ async def setup() -> None:
             globals()["character_name"] = character.name
             globals()["character_opening_line"] = character.opening_line
             globals()["character_voice_id"] = character.voice_id
+            globals()["character_path"] = str(character_path)
             asyncio.create_task(
                 character_loader.prepare_character_rag(character_path, notify=_notify)
             )
@@ -519,6 +536,45 @@ async def apply_voice_settings() -> None:
         await furhat.request_set_voice(voice_name)
     if hasattr(furhat, "request_set_voice_parameters"):
         await furhat.request_set_voice_parameters(rate=voice_rate, volume=voice_volume)
+
+
+async def apply_character_file(
+    path: str,
+    *,
+    force_rag: bool = False,
+    speak_greeting: bool = False,
+) -> None:
+    if not path:
+        raise ValueError("Character path is empty.")
+    character_file = Path(path).expanduser()
+    if not character_file.exists():
+        raise FileNotFoundError(f"Character file not found: {character_file}")
+
+    character = character_loader.load_character(character_file)
+    globals()["character_name"] = character.name
+    globals()["character_opening_line"] = character.opening_line
+    globals()["character_voice_id"] = character.voice_id
+    globals()["character_path"] = str(character_file)
+    _notify(f"character loaded: {character_file.name}")
+
+    try:
+        await character_loader.prepare_character_rag(
+            character_file, notify=_notify, force=force_rag
+        )
+    except Exception as exc:
+        logger.warning("Character RAG build failed: %s", exc)
+        _notify(f"rag build error: {exc}")
+
+    if character.voice_id:
+        try:
+            set_voice_settings(character.voice_id, voice_rate, voice_volume)
+            await apply_voice_settings()
+        except Exception as exc:
+            logger.warning("Failed to apply character voice: %s", exc)
+            _notify(f"character voice error: {exc}")
+
+    if speak_greeting and character.opening_line:
+        await _speak_text_safe(character.opening_line, wait=True, abort=True, timeout=10)
 
 
 async def speak_from_prompt(prompt: str) -> None:

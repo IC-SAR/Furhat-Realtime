@@ -1,9 +1,15 @@
 import asyncio
 import json
+import os
+import subprocess
+import sys
 import threading
 import tkinter as tk
+from tkinter import ttk
+import time
 from pathlib import Path
 from typing import Optional
+from tkinter import filedialog
 
 try:
     from ..Robot import robot
@@ -15,8 +21,17 @@ try:
 except ImportError:
     # Allow running as a script (python src/Furhat/main.py).
     from Ollama import chatbot
+try:
+    from ..Character import loader as character_loader
+except ImportError:
+    from Character import loader as character_loader
+try:
+    from .. import paths
+except ImportError:
+    import paths
 
-SETTINGS_PATH = Path(__file__).resolve().parents[1] / "settings.json"
+SETTINGS_PATH = paths.get_settings_path()
+APP_ROOT = paths.get_app_root()
 
 
 def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
@@ -24,6 +39,29 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     root.title("Furhat Realtime")
     root.minsize(860, 560)
     root.configure(bg="#0f172a")
+
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except Exception:
+        pass
+    style.configure(
+        "Furhat.TNotebook",
+        background="#0f172a",
+        borderwidth=0,
+    )
+    style.configure(
+        "Furhat.TNotebook.Tab",
+        background="#111827",
+        foreground="#e2e8f0",
+        padding=(12, 6),
+        font=("Trebuchet MS", 10, "bold"),
+    )
+    style.map(
+        "Furhat.TNotebook.Tab",
+        background=[("selected", "#1f2937")],
+        foreground=[("selected", "#f8fafc")],
+    )
 
     canvas = tk.Canvas(root, highlightthickness=0, bg="#0f172a")
     canvas.pack(fill="both", expand=True)
@@ -88,12 +126,23 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     ollama_state_label.pack(side="left")
 
     main_frame = tk.Frame(canvas, bg="#0f172a")
-    left_panel = tk.Frame(main_frame, bg="#0f172a")
-    right_panel = tk.Frame(main_frame, bg="#0f172a")
+    notebook = ttk.Notebook(main_frame, style="Furhat.TNotebook")
+    controls_tab = tk.Frame(notebook, bg="#0f172a")
+    character_tab = tk.Frame(notebook, bg="#0f172a")
+    settings_tab = tk.Frame(notebook, bg="#0f172a")
+    system_tab = tk.Frame(notebook, bg="#0f172a")
+    logs_tab = tk.Frame(notebook, bg="#0f172a")
+    notebook.add(controls_tab, text="Controls")
+    notebook.add(character_tab, text="Character & RAG")
+    notebook.add(settings_tab, text="Settings")
+    notebook.add(system_tab, text="System")
+    notebook.add(logs_tab, text="Logs")
 
-    controls_frame = tk.Frame(left_panel, bg="#111827", padx=16, pady=14)
-    settings_frame = tk.Frame(left_panel, bg="#111827", padx=16, pady=14)
-    logs_frame = tk.Frame(right_panel, bg="#111827", padx=16, pady=14)
+    controls_frame = tk.Frame(controls_tab, bg="#111827", padx=16, pady=14)
+    character_frame = tk.Frame(character_tab, bg="#111827", padx=16, pady=14)
+    system_frame = tk.Frame(system_tab, bg="#111827", padx=16, pady=14)
+    settings_frame = tk.Frame(settings_tab, bg="#111827", padx=16, pady=14)
+    logs_frame = tk.Frame(logs_tab, bg="#111827", padx=16, pady=14)
 
     controls_title = tk.Label(
         controls_frame,
@@ -155,6 +204,165 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         relief="flat",
         padx=28,
         pady=14,
+    )
+
+    character_title = tk.Label(
+        character_frame,
+        text="Character & RAG",
+        fg="#e2e8f0",
+        bg="#111827",
+        font=("Trebuchet MS", 12, "bold"),
+    )
+    character_path_value = tk.StringVar(value=robot.get_character_path())
+    character_label = tk.Label(
+        character_frame,
+        text="Character file",
+        fg="#cbd5f5",
+        bg="#111827",
+        font=("Trebuchet MS", 10),
+    )
+    character_entry = tk.Entry(
+        character_frame,
+        textvariable=character_path_value,
+        fg="#0f172a",
+        bg="#e2e8f0",
+        width=28,
+        relief="flat",
+    )
+    character_options = tk.StringVar(value="Select character")
+    character_menu = tk.OptionMenu(character_frame, character_options, "loading...")
+    character_menu.configure(bg="#0f172a", fg="#e2e8f0", activebackground="#111827")
+    refresh_char_button = tk.Button(
+        character_frame,
+        text="Refresh",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#38bdf8",
+        activebackground="#0ea5e9",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=6,
+        pady=2,
+    )
+    browse_char_button = tk.Button(
+        character_frame,
+        text="Browse",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#94a3b8",
+        activebackground="#64748b",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=6,
+        pady=2,
+    )
+    load_char_button = tk.Button(
+        character_frame,
+        text="Load character",
+        font=("Trebuchet MS", 10, "bold"),
+        fg="#0f172a",
+        bg="#fbbf24",
+        activebackground="#f59e0b",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=10,
+        pady=4,
+    )
+    rebuild_rag_button = tk.Button(
+        character_frame,
+        text="Rebuild RAG",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#38bdf8",
+        activebackground="#0ea5e9",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=8,
+        pady=2,
+    )
+    open_rag_button = tk.Button(
+        character_frame,
+        text="Open sources",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#94a3b8",
+        activebackground="#64748b",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=8,
+        pady=2,
+    )
+    character_status_var = tk.StringVar(value="Active: none")
+    character_status_label = tk.Label(
+        character_frame,
+        textvariable=character_status_var,
+        fg="#94a3b8",
+        bg="#111827",
+        font=("Trebuchet MS", 9),
+        wraplength=260,
+        justify="left",
+    )
+    rag_status_var = tk.StringVar(value="RAG: unknown")
+    rag_status_label = tk.Label(
+        character_frame,
+        textvariable=rag_status_var,
+        fg="#94a3b8",
+        bg="#111827",
+        font=("Trebuchet MS", 9),
+        wraplength=260,
+        justify="left",
+    )
+
+    system_title = tk.Label(
+        system_frame,
+        text="System",
+        fg="#e2e8f0",
+        bg="#111827",
+        font=("Trebuchet MS", 12, "bold"),
+    )
+    ollama_status_var = tk.StringVar(value="Ollama: unknown")
+    ollama_status_label = tk.Label(
+        system_frame,
+        textvariable=ollama_status_var,
+        fg="#94a3b8",
+        bg="#111827",
+        font=("Trebuchet MS", 9, "bold"),
+    )
+    ollama_check_button = tk.Button(
+        system_frame,
+        text="Check Ollama",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#38bdf8",
+        activebackground="#0ea5e9",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=8,
+        pady=2,
+    )
+    ollama_start_button = tk.Button(
+        system_frame,
+        text="Start Ollama",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#fbbf24",
+        activebackground="#f59e0b",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=8,
+        pady=2,
+    )
+    open_settings_button = tk.Button(
+        system_frame,
+        text="Open settings",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#94a3b8",
+        activebackground="#64748b",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=8,
+        pady=2,
     )
 
     settings_title = tk.Label(
@@ -432,6 +640,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     def set_ollama_state(message: str, color: str) -> None:
         ollama_state_var.set(f"Ollama: {message}")
         ollama_state_label.configure(fg=color)
+        ollama_status_var.set(f"Ollama: {message}")
 
     def add_log(message: str) -> None:
         logs_text.configure(state="normal")
@@ -455,6 +664,141 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
             set_robot_state("error", "#f87171")
 
     robot.set_log_callback(lambda message: root.after(0, handle_robot_log, message))
+
+    def _open_path(path: Path) -> None:
+        if not path.exists():
+            set_status(f"path not found: {path}", "#f87171")
+            return
+        try:
+            if os.name == "nt":
+                os.startfile(path)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except Exception as exc:
+            set_status(f"open path error: {exc}", "#f87171")
+
+    def _scan_character_files() -> list[Path]:
+        files: list[Path] = []
+        for path in APP_ROOT.glob("*.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if isinstance(data, dict) and "externalLinks" in data:
+                files.append(path)
+        return files
+
+    def refresh_character_list() -> None:
+        items = _scan_character_files()
+        menu = character_menu["menu"]
+        menu.delete(0, "end")
+        if not items:
+            menu.add_command(label="No characters found", command=lambda: None)
+            character_options.set("Select character")
+            return
+        for path in items:
+            menu.add_command(
+                label=path.name,
+                command=lambda value=str(path): (
+                    character_path_value.set(value),
+                    character_options.set(Path(value).name),
+                    refresh_character_status(),
+                    refresh_rag_status(),
+                ),
+            )
+        character_options.set("Select character")
+
+    def refresh_character_status() -> None:
+        info = robot.get_character_info()
+        name = info.get("name") or "none"
+        voice = info.get("voice_id") or "default"
+        character_status_var.set(f"Active: {name} | Voice: {voice}")
+
+    def refresh_rag_status() -> None:
+        path_value = character_path_value.get().strip() or robot.get_character_path()
+        if not path_value:
+            rag_status_var.set("RAG: no character selected")
+            return
+        path = Path(path_value)
+        if not path.exists():
+            rag_status_var.set("RAG: character file missing")
+            return
+        try:
+            base_dir = character_loader.get_character_storage_dir(path)
+            manifest = base_dir / "rag_index.json"
+        except Exception as exc:
+            rag_status_var.set(f"RAG: error ({exc})")
+            return
+        if not manifest.exists():
+            rag_status_var.set("RAG: not built")
+            return
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            entries = data.get("entries", "unknown")
+            built_at = float(data.get("built_at", 0))
+            built_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(built_at)) if built_at else "unknown"
+            rag_status_var.set(f"RAG: {entries} chunks | built {built_str}")
+        except Exception:
+            rag_status_var.set("RAG: status read error")
+
+    def browse_character() -> None:
+        path = filedialog.askopenfilename(
+            title="Select character JSON",
+            initialdir=str(APP_ROOT),
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        character_path_value.set(path)
+        character_options.set(Path(path).name)
+        refresh_character_status()
+        refresh_rag_status()
+
+    def apply_character(force: bool = False) -> None:
+        path = character_path_value.get().strip()
+        if not path:
+            set_status("character path is empty", "#fbbf24")
+            return
+        set_status("loading character...", "#fbbf24")
+        if loop:
+            asyncio.run_coroutine_threadsafe(
+                robot.apply_character_file(path, force_rag=force), loop
+            )
+        else:
+            threading.Thread(
+                target=lambda: asyncio.run(robot.apply_character_file(path, force_rag=force)),
+                daemon=True,
+            ).start()
+        save_settings()
+        root.after(800, refresh_character_status)
+        root.after(1200, refresh_rag_status)
+
+    def open_rag_sources() -> None:
+        path = character_path_value.get().strip() or robot.get_character_path()
+        if not path:
+            set_status("character path is empty", "#fbbf24")
+            return
+        try:
+            sources_dir = character_loader.get_character_sources_dir(Path(path))
+        except Exception as exc:
+            set_status(f"rag sources error: {exc}", "#f87171")
+            return
+        _open_path(sources_dir)
+
+    def start_ollama() -> None:
+        def _run() -> None:
+            try:
+                subprocess.Popen(["ollama", "serve"])
+                root.after(0, lambda: set_status("ollama starting...", "#38bdf8"))
+            except Exception as exc:
+                root.after(0, lambda: set_status(f"ollama start error: {exc}", "#f87171"))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def open_settings() -> None:
+        _open_path(SETTINGS_PATH)
 
     # Use a thread-visible flag to track whether the listen button is
     # enabled. The callback updates this flag immediately (no Tk
@@ -624,6 +968,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
             "model": model_value.get(),
             "temperature": float(temperature_value.get()),
             "ip": ip_value.get(),
+            "character_path": character_path_value.get().strip(),
             "listen": {
                 "partial": listen_partial_value.get(),
                 "concat": listen_concat_value.get(),
@@ -639,6 +984,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
             },
         }
         try:
+            SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
             SETTINGS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except Exception as exc:
             set_status(f"settings save error: {exc}", "#f87171")
@@ -658,6 +1004,10 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
             temperature_value.set(float(data["temperature"]))
         if "ip" in data:
             ip_value.set(data["ip"])
+        if "character_path" in data:
+            character_path_value.set(data["character_path"])
+            if data["character_path"]:
+                character_options.set(Path(data["character_path"]).name)
         listen = data.get("listen", {})
         listen_partial_value.set(bool(listen.get("partial", True)))
         listen_concat_value.set(bool(listen.get("concat", True)))
@@ -698,6 +1048,14 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     reconnect_button.configure(command=reconnect_robot)
     clear_logs_button.configure(command=clear_logs)
     refresh_models_button.configure(command=refresh_model_list)
+    refresh_char_button.configure(command=refresh_character_list)
+    browse_char_button.configure(command=browse_character)
+    load_char_button.configure(command=lambda: apply_character(False))
+    rebuild_rag_button.configure(command=lambda: apply_character(True))
+    open_rag_button.configure(command=open_rag_sources)
+    ollama_check_button.configure(command=refresh_model_list)
+    ollama_start_button.configure(command=start_ollama)
+    open_settings_button.configure(command=open_settings)
 
     title_id = canvas.create_window(0, 0, anchor="center", window=title, width=320, height=36)
     subtitle_id = canvas.create_window(0, 0, anchor="center", window=subtitle, width=360, height=24)
@@ -711,6 +1069,24 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     send_button.grid(row=2, column=1, sticky="w", padx=(8, 0))
     clear_context_button.grid(row=3, column=0, sticky="w", pady=(0, 8))
     listen_button.grid(row=4, column=0, columnspan=2, pady=(6, 0))
+
+    character_title.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+    character_label.grid(row=1, column=0, columnspan=3, sticky="w")
+    character_entry.grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 6))
+    browse_char_button.grid(row=2, column=2, sticky="w", padx=(8, 0))
+    character_menu.grid(row=3, column=0, columnspan=2, sticky="w")
+    refresh_char_button.grid(row=3, column=2, sticky="w", padx=(8, 0))
+    load_char_button.grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
+    rebuild_rag_button.grid(row=5, column=0, sticky="w", pady=(6, 0))
+    open_rag_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+    character_status_label.grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
+    rag_status_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(2, 0))
+
+    system_title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+    ollama_status_label.grid(row=1, column=0, columnspan=2, sticky="w")
+    ollama_check_button.grid(row=2, column=0, sticky="w", pady=(6, 0))
+    ollama_start_button.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+    open_settings_button.grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
     settings_title.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
     model_label.grid(row=1, column=0, sticky="w")
@@ -746,11 +1122,12 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     logs_frame.grid_rowconfigure(1, weight=1)
     logs_frame.grid_columnconfigure(0, weight=1)
 
-    controls_frame.pack(fill="x", pady=(0, 12))
+    controls_frame.pack(fill="both", expand=True)
+    character_frame.pack(fill="both", expand=True)
+    system_frame.pack(fill="both", expand=True)
     settings_frame.pack(fill="both", expand=True)
-    left_panel.pack(side="left", fill="both", expand=True, padx=(0, 12))
     logs_frame.pack(fill="both", expand=True)
-    right_panel.pack(side="right", fill="both", expand=True)
+    notebook.pack(fill="both", expand=True)
     main_frame.pack(fill="both", expand=True)
 
     def position_elements(event=None) -> None:
@@ -773,8 +1150,13 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     )
 
     load_settings()
+    refresh_character_list()
+    refresh_character_status()
+    refresh_rag_status()
     refresh_model_list()
     set_status("idle")
     root.after(200, listen_button.focus_set)
+    root.after(1500, refresh_character_status)
+    root.after(2000, refresh_rag_status)
 
     return root

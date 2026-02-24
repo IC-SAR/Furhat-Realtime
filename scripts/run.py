@@ -32,7 +32,7 @@ def main() -> None:
     env["PYTHONPATH"] = str(ROOT / "src")
 
     _try_ollama()
-    subprocess.check_call([str(python), str(ROOT / "src" / "Furhat" / "main.py")], env=env)
+    subprocess.check_call([str(python), "-m", "Furhat.main"], env=env)
 
 
 if __name__ == "__main__":

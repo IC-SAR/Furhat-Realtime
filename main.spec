@@ -33,6 +33,7 @@ a = Analysis(
         'Furhat.RAG.embeddings',
         'Furhat.RAG.prompting',
         'Furhat.RAG.retriever',
+        'Furhat.paths',
     ],
     hookspath=[],
     hooksconfig={},

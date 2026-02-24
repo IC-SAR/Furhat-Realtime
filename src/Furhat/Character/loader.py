@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import os
+import sys
 import re
 import time
 from dataclasses import dataclass
@@ -14,14 +15,16 @@ from urllib.request import Request, urlopen
 
 try:
     from ..RAG import builder, retriever
+    from .. import paths
 except ImportError:
     # Allow running as a script (python src/Furhat/main.py).
     from RAG import builder, retriever
+    import paths
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = paths.get_app_root()
 CHARACTER_ENV_VARS = ("FURHAT_CHARACTER_FILE", "CHARACTER_FILE")
-DEFAULT_CHAR_DIR = PROJECT_ROOT / "data" / "characters"
+DEFAULT_CHAR_DIR = paths.get_data_root() / "characters"
 DEFAULT_TIMEOUT = 15
 RAG_REFRESH_DAYS = float(os.getenv("RAG_REFRESH_DAYS", "0"))
 RAG_FORCE_REFRESH = os.getenv("RAG_FORCE_REFRESH", "0").lower() in {"1", "true", "yes", "y", "on"}
@@ -126,14 +129,14 @@ def _write_manifest(path: Path, links: list[str]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def _links_match(manifest: Path, links: list[str]) -> bool:
+def _links_match(manifest: Path, links: list[str], *, force: bool = False) -> bool:
     if not manifest.exists():
         return False
     try:
         data = json.loads(manifest.read_text(encoding="utf-8"))
     except Exception:
         return False
-    if RAG_FORCE_REFRESH:
+    if force or RAG_FORCE_REFRESH:
         return False
     if RAG_REFRESH_DAYS > 0:
         built_at = float(data.get("built_at", 0))
@@ -172,18 +175,34 @@ def _download_sources(links: list[str], dest: Path, notify: Optional[Callable[[s
         path.write_text(text, encoding="utf-8")
 
 
-def _prepare_character_rag_sync(character_path: Path, notify: Optional[Callable[[str], None]]) -> None:
+def get_character_storage_dir(character_path: Path) -> Path:
+    character = load_character(character_path)
+    return DEFAULT_CHAR_DIR / _slugify(character.char_id)
+
+
+def get_character_sources_dir(character_path: Path) -> Path:
+    return get_character_storage_dir(character_path) / "sources"
+
+
+def _prepare_character_rag_sync(
+    character_path: Path,
+    notify: Optional[Callable[[str], None]],
+    *,
+    force: bool = False,
+) -> None:
     character = load_character(character_path)
     if not character.external_links:
         _notify(notify, f"Character '{character.name}' has no external links for RAG.")
         return
 
-    base_dir = DEFAULT_CHAR_DIR / _slugify(character.char_id)
+    base_dir = get_character_storage_dir(character_path)
     sources_dir = base_dir / "sources"
     index_path = base_dir / "rag_index.pkl"
     manifest_path = base_dir / "rag_manifest.json"
 
-    needs_build = not index_path.exists() or not _links_match(manifest_path, character.external_links)
+    needs_build = force or not index_path.exists() or not _links_match(
+        manifest_path, character.external_links, force=force
+    )
     if needs_build:
         _notify(notify, f"Building RAG index for '{character.name}'...")
         _clear_sources(sources_dir)
@@ -209,6 +228,9 @@ def _prepare_character_rag_sync(character_path: Path, notify: Optional[Callable[
 
 
 async def prepare_character_rag(
-    character_path: Path, notify: Optional[Callable[[str], None]] = None
+    character_path: Path,
+    notify: Optional[Callable[[str], None]] = None,
+    *,
+    force: bool = False,
 ) -> None:
-    await asyncio.to_thread(_prepare_character_rag_sync, character_path, notify)
+    await asyncio.to_thread(_prepare_character_rag_sync, character_path, notify, force=force)
