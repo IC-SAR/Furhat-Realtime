@@ -9,20 +9,23 @@ Tkinter UI to hold-to-listen and stream responses back to the robot.
 - A Furhat robot reachable at the IP in `src/Furhat/settings.json`
 - Windows PowerShell (for the helper scripts)
 
-## Quick start (recommended)
+## Quick start (recommended, cross-platform)
 1. Update the robot IP in `src/Furhat/settings.json`.
 2. Install dependencies:
-   ```powershell
-   .\scripts\install.ps1
-   ```
-   If PowerShell blocks scripts, run:
-   ```powershell
-   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   ```bash
+   python scripts/install.py
    ```
 3. Run the app:
-   ```powershell
-   .\scripts\run.ps1
+   ```bash
+   python scripts/run.py
    ```
+
+### Windows PowerShell (optional)
+If you prefer PowerShell wrappers:
+```powershell
+.\scripts\install.ps1
+.\scripts\run.ps1
+```
 
 ## How it works
 - The UI runs on the main thread.
