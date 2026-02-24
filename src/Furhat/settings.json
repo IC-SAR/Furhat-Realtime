@@ -1,7 +1,7 @@
 {
   "model": "gemma3:1b",
   "temperature": 0.7,
-  "ip": "172.27.8.28",
+  "ip": "172.27.8.43",
   "listen": {
     "partial": true,
     "concat": true,
