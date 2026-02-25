@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -450,6 +451,25 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         relief="flat",
         padx=8,
         pady=2,
+    )
+
+    def get_local_ip() -> str:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            return local_ip
+        except Exception:
+            return "Unknown"
+
+    web_port = int(os.getenv("WEB_PORT", "7860"))
+    local_ip_label = tk.Label(
+        settings_frame,
+        text=f"Local IP: {get_local_ip()}:{web_port}",
+        fg="#cbd5f5",
+        bg="#111827",
+        font=("Trebuchet MS", 10),
     )
 
     listen_title = tk.Label(
@@ -1098,23 +1118,24 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     ip_label.grid(row=3, column=0, sticky="w")
     ip_entry.grid(row=3, column=1, sticky="w", padx=(8, 0))
     reconnect_button.grid(row=3, column=2, sticky="w", padx=(8, 0))
+    local_ip_label.grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
-    listen_title.grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 6))
-    listen_partial_cb.grid(row=5, column=0, sticky="w")
-    listen_concat_cb.grid(row=5, column=1, sticky="w")
-    listen_no_speech_cb.grid(row=6, column=0, sticky="w")
-    listen_user_end_cb.grid(row=6, column=1, sticky="w")
-    listen_robot_start_cb.grid(row=7, column=0, sticky="w")
-    listen_interrupt_cb.grid(row=7, column=1, sticky="w")
+    listen_title.grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 6))
+    listen_partial_cb.grid(row=6, column=0, sticky="w")
+    listen_concat_cb.grid(row=6, column=1, sticky="w")
+    listen_no_speech_cb.grid(row=7, column=0, sticky="w")
+    listen_user_end_cb.grid(row=7, column=1, sticky="w")
+    listen_robot_start_cb.grid(row=8, column=0, sticky="w")
+    listen_interrupt_cb.grid(row=8, column=1, sticky="w")
 
-    voice_title.grid(row=8, column=0, columnspan=3, sticky="w", pady=(10, 6))
-    voice_name_label.grid(row=9, column=0, sticky="w")
-    voice_name_entry.grid(row=9, column=1, sticky="w", padx=(8, 0))
-    voice_rate_label.grid(row=10, column=0, sticky="w")
-    voice_rate_scale.grid(row=10, column=1, columnspan=2, sticky="w", pady=(2, 6))
-    voice_volume_label.grid(row=11, column=0, sticky="w")
-    voice_volume_scale.grid(row=11, column=1, columnspan=2, sticky="w")
-    apply_button.grid(row=12, column=0, columnspan=3, sticky="w", pady=(10, 0))
+    voice_title.grid(row=9, column=0, columnspan=3, sticky="w", pady=(10, 6))
+    voice_name_label.grid(row=10, column=0, sticky="w")
+    voice_name_entry.grid(row=10, column=1, sticky="w", padx=(8, 0))
+    voice_rate_label.grid(row=11, column=0, sticky="w")
+    voice_rate_scale.grid(row=11, column=1, columnspan=2, sticky="w", pady=(2, 6))
+    voice_volume_label.grid(row=12, column=0, sticky="w")
+    voice_volume_scale.grid(row=12, column=1, columnspan=2, sticky="w")
+    apply_button.grid(row=13, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
     logs_title.grid(row=0, column=0, sticky="w", pady=(0, 8))
     logs_text.grid(row=1, column=0, sticky="nsew")
