@@ -45,6 +45,15 @@ If you prefer PowerShell wrappers:
 - `RAG_REFRESH_DAYS` (default 0, disables time-based refresh)
 - `RAG_FORCE_REFRESH=1` to force re-download on every run.
 
+## Web control (optional)
+The app starts a lightweight web server for remote control:
+- URL: `http://127.0.0.1:7860`
+- Press and hold to listen, release to speak.
+- Endpoint overrides:
+  - `WEB_ENABLED=0` to disable
+  - `WEB_HOST=0.0.0.0` to bind on all interfaces
+  - `WEB_PORT=7860` to change the port
+
 ## Character JSON + Auto RAG
 - If a character JSON file exists in the repo root (e.g. `Pepper - Innovation Day.json`),
   it will be loaded on startup.

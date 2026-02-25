@@ -34,6 +34,8 @@ a = Analysis(
         'Furhat.RAG.prompting',
         'Furhat.RAG.retriever',
         'Furhat.paths',
+        'Furhat.Web',
+        'Furhat.Web.server',
     ],
     hookspath=[],
     hooksconfig={},

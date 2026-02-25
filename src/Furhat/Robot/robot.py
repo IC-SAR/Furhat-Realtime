@@ -42,6 +42,9 @@ listen_stop_no_speech = False
 listen_stop_user_end = False
 listen_stop_robot_start = False
 listen_interrupt_speech = True
+last_heard_text = ""
+last_spoken_text = ""
+last_prompt_text = ""
 voice_name = ""
 voice_rate = 1.0
 voice_volume = 1.0
@@ -140,7 +143,12 @@ def _notify(message: str) -> None:
 
 
 def _event_text(event: object) -> str:
-    return getattr(event, "text", str(event))
+    if isinstance(event, dict):
+        text = event.get("text") or event.get("message") or event.get("value")
+        return "" if text is None else str(text)
+    if hasattr(event, "text"):
+        return str(getattr(event, "text"))
+    return str(event)
 
 
 def _load_settings_from_file() -> None:
@@ -197,6 +205,17 @@ def get_character_info() -> dict[str, str]:
 
 def get_character_path() -> str:
     return character_path
+
+
+def get_runtime_status() -> dict[str, object]:
+    return {
+        "listening": is_listening,
+        "speaking": is_speaking,
+        "speech_session": speech_session_active,
+        "heard": last_heard_text,
+        "spoken": last_spoken_text,
+        "prompt": last_prompt_text,
+    }
 
 
 async def _speak_text_safe(
@@ -260,6 +279,7 @@ async def on_listen_deactivate() -> None:
     except asyncio.TimeoutError:
         heard_text = _event_text(partial_text).strip()
 
+    globals()["last_heard_text"] = heard_text
     logger.info("Heard: %s", heard_text if heard_text else "<empty>")
     _notify(f"heard: {heard_text if heard_text else '<empty>'}")
     if heard_text:
@@ -270,6 +290,7 @@ async def on_partial(event: object) -> None:
     global partial_text
 
     partial_text = _event_text(event)
+    globals()["last_heard_text"] = partial_text
     _notify(f"partial: {partial_text}")
 
 
@@ -277,6 +298,7 @@ async def on_hear_end(event: object) -> None:
     global recognized_text
 
     recognized_text = _event_text(event)
+    globals()["last_heard_text"] = recognized_text
     _notify(f"final: {recognized_text}")
     hear_end_event.set()
 
@@ -286,6 +308,12 @@ async def on_speak_start(event: object) -> None:
     _notify(f"speak start: {_event_text(event)}")
     global is_speaking
     is_speaking = True
+    try:
+        text = _event_text(event)
+        if text:
+            globals()["last_spoken_text"] = text
+    except Exception:
+        pass
     # Inform UI to disable the listen button while speaking, but avoid
     # toggling if a full speech session is already active (prevents
     # re-enabling between chunks).
@@ -579,6 +607,7 @@ async def apply_character_file(
 
 async def speak_from_prompt(prompt: str) -> None:
     global speech_session_active
+    globals()["last_prompt_text"] = prompt
     # Lock the UI for the full thinking+speaking session.
     speech_session_active = True
     try:
@@ -645,6 +674,7 @@ async def speak_from_prompt(prompt: str) -> None:
             say_text = _shorten_for_speech(say_text)
             say_text = _sanitize_for_speech(say_text)
         if say_text:
+            globals()["last_spoken_text"] = say_text
             await _speak_text_safe(say_text, wait=True, timeout=SPEAK_WAIT_TIMEOUT)
     finally:
         # Session finished — allow the UI to re-enable the listen button.

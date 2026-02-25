@@ -6,10 +6,12 @@ import threading
 try:
     from .Robot import robot
     from .UI import ui
+    from .Web import server as web_server
 except ImportError:
     # Allow running as a script (python src/Furhat/main.py).
     from Robot import robot
     from UI import ui
+    from Web import server as web_server
 
 
 def _start_loop(event_loop: asyncio.AbstractEventLoop) -> None:
@@ -29,6 +31,9 @@ def main() -> None:
 
     # Create the UI and pass the asyncio loop so callbacks can schedule coroutines safely.
     root = ui.create_ui(loop=loop)
+
+    # Start the web control server (for the exe and remote control).
+    web_server.start_server(loop)
 
     # Run the robot loop in a worker thread so the UI stays responsive.
     worker_thread = threading.Thread(target=_start_robot, daemon=True)
