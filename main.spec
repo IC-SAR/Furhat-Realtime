@@ -20,7 +20,9 @@ a = Analysis(
     ['run.py'],
     pathex=[src_path],
     binaries=[],
-    datas=[],
+    datas=[
+        (str(spec_root / 'assets' / 'app.ico'), 'assets'),
+    ],
     hiddenimports=[
         # External packages
         'furhat_realtime_api',

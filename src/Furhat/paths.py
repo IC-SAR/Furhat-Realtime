@@ -33,3 +33,10 @@ def get_data_root() -> Path:
         base.mkdir(parents=True, exist_ok=True)
         return base
     return Path(__file__).resolve().parents[3] / "data"
+
+
+def get_asset_path(name: str) -> Path:
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", get_app_root()))
+        return base / "assets" / name
+    return get_app_root() / "assets" / name
