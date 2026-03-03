@@ -218,6 +218,16 @@ def get_runtime_status() -> dict[str, object]:
     }
 
 
+async def _attend_closest_user() -> None:
+    """Attend the closest user at all times."""
+    try:
+        if hasattr(furhat, "request_attend_user"):
+            await furhat.request_attend_user("closest")
+            logger.debug("Attending closest user")
+    except Exception:
+        logger.exception("Failed to attend closest user")
+
+
 async def _speak_text_safe(
     text: str,
     *,
@@ -341,7 +351,8 @@ async def on_speak_end(event: object) -> None:
             listen_button_callback(True)
     except Exception:
         logger.exception("Error calling listen_button_callback on speak end")
-  
+    # Attend the closest user after speaking ends
+    await _attend_closest_user()
 
 async def setup() -> None:
     _load_settings_from_file()
@@ -417,6 +428,8 @@ async def setup() -> None:
             await _speak_text_safe(greeting, wait=True, abort=True, timeout=10)
             logger.info("Activated")
             _notify("robot connected")
+            # Attend the closest user on startup
+            await _attend_closest_user()
             break
         except asyncio.CancelledError:
             raise
