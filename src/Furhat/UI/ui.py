@@ -941,9 +941,21 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         chatbot.clear_messages()
         set_status("context cleared", "#4ade80")
 
+    applying_settings = False
+
+    def _set_apply_enabled(enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        apply_button.configure(state=state)
+
     def apply_settings() -> None:
+        nonlocal applying_settings
+        if applying_settings:
+            return
+        applying_settings = True
+        _set_apply_enabled(False)
+        set_status("applying settings...", "#38bdf8")
+
         try:
-            chatbot.set_model(model_value.get())
             chatbot.set_temperature(float(temperature_value.get()))
             robot.set_ip(ip_value.get())
             robot.set_listen_settings(
@@ -961,6 +973,8 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
             )
         except Exception as exc:
             set_status(f"settings error: {exc}", "#f87171")
+            applying_settings = False
+            _set_apply_enabled(True)
             return
 
         if loop:
@@ -971,7 +985,34 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
                 daemon=True,
             ).start()
         save_settings()
-        set_status("settings updated", "#4ade80")
+
+        new_model = model_value.get().strip()
+        if not new_model:
+            set_status("model is empty", "#f87171")
+            applying_settings = False
+            _set_apply_enabled(True)
+            return
+        if new_model != chatbot.get_model():
+            def _apply_model() -> None:
+                try:
+                    root.after(0, lambda: set_status("downloading model...", "#38bdf8"))
+                    chatbot.set_model(new_model)
+                    root.after(0, lambda: set_status("settings updated", "#4ade80"))
+                except Exception as exc:
+                    root.after(0, lambda: set_status(f"model error: {exc}", "#f87171"))
+                finally:
+                    def _finish() -> None:
+                        nonlocal applying_settings
+                        applying_settings = False
+                        _set_apply_enabled(True)
+
+                    root.after(0, _finish)
+
+            threading.Thread(target=_apply_model, daemon=True).start()
+        else:
+            set_status("settings updated", "#4ade80")
+            applying_settings = False
+            _set_apply_enabled(True)
 
     def reconnect_robot() -> None:
         set_status("reconnecting...", "#fbbf24")
