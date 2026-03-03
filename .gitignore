@@ -201,6 +201,11 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Packaging outputs
+packaging/version_info.txt
+packaging/installer.generated.iss
+packaging/dist/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

@@ -3,8 +3,18 @@ import sys
 from pathlib import Path
 
 # Add src directory to path so PyInstaller can find the Furhat package
-src_path = str(Path(SPECPATH) / 'src')
+spec_root = Path(SPECPATH)
+src_path = str(spec_root / 'src')
 sys.path.insert(0, src_path)
+
+app_info = {}
+version_file = spec_root / 'src' / 'Furhat' / 'version.py'
+if version_file.exists():
+    exec(version_file.read_text(encoding='utf-8'), app_info)
+app_exe_name = app_info.get('__exe_name__', 'Furhat-Realtime')
+app_exe_name = app_exe_name.replace('.exe', '')
+icon_path = spec_root / 'assets' / 'app.ico'
+version_info_path = spec_root / 'packaging' / 'version_info.txt'
 
 a = Analysis(
     ['run.py'],
@@ -52,7 +62,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='main',
+    name=app_exe_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -60,6 +70,8 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,
+    icon=str(icon_path) if icon_path.exists() else None,
+    version=str(version_info_path) if version_info_path.exists() else None,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

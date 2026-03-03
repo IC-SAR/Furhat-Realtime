@@ -20,6 +20,20 @@ Tkinter UI to hold-to-listen and stream responses back to the robot.
    python scripts/run.py
    ```
 
+## Build the Windows exe
+```bash
+python scripts/build_exe.py
+```
+Output: `dist/Furhat-Realtime.exe`
+
+## Build the Windows installer (Inno Setup)
+1. Install Inno Setup 6 (ISCC) from the official site.
+2. Build the installer:
+   ```bash
+   python scripts/build_installer.py
+   ```
+Output: `dist/installer/Furhat-Realtime-Setup.exe`
+
 ### Windows PowerShell (optional)
 If you prefer PowerShell wrappers:
 ```powershell
@@ -36,6 +50,8 @@ If you prefer PowerShell wrappers:
 ## Configuration
 - `src/Furhat/settings.json` stores IP, model, temperature, listen, and voice settings.
 - `src/Furhat/Ollama/config.py` sets the default model name.
+- `src/Furhat/version.py` controls app name/version used by the exe and installer.
+- Replace `assets/app.ico` to customize the app icon.
 
 ### Useful environment variables
 - `OLLAMA_LLM_LIBRARY=cuda_v12` to force GPU usage.
