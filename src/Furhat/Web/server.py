@@ -4,13 +4,15 @@ import asyncio
 import json
 import os
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 
 try:
     from ..Robot import robot
+    from .. import paths
 except ImportError:
     from Robot import robot
+    import paths
 
 
 DEFAULT_HOST = os.getenv("WEB_HOST", "0.0.0.0")
@@ -24,6 +26,7 @@ HTML = """<!doctype html>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Furhat Web Control</title>
+  <link rel="icon" href="/favicon.ico" />
   <style>
     body { font-family: Arial, sans-serif; background:#0f172a; color:#e2e8f0; padding:24px; }
     .card { background:#111827; padding:24px; border-radius:16px; max-width:640px; }
@@ -151,6 +154,7 @@ HTML = """<!doctype html>
 
 class _Handler(BaseHTTPRequestHandler):
     loop: Optional[asyncio.AbstractEventLoop] = None
+    icon_bytes: Optional[bytes] = None
 
     def _send_json(self, data: dict, status: int = 200) -> None:
         payload = json.dumps(data).encode("utf-8")
@@ -181,6 +185,16 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/" or self.path.startswith("/index"):
             self._send_html(HTML)
+            return
+        if self.path == "/favicon.ico":
+            if self.icon_bytes:
+                self.send_response(200)
+                self.send_header("Content-Type", "image/x-icon")
+                self.send_header("Content-Length", str(len(self.icon_bytes)))
+                self.end_headers()
+                self.wfile.write(self.icon_bytes)
+                return
+            self._send_json({"error": "not found"}, status=404)
             return
         if self.path == "/api/health":
             self._send_json({"ok": True})
@@ -234,15 +248,23 @@ def start_server(
     *,
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
-) -> Optional[HTTPServer]:
+) -> Optional[ThreadingHTTPServer]:
     if not WEB_ENABLED:
         return None
 
+    icon_path = paths.get_asset_path("app.ico")
+    if icon_path.exists():
+        try:
+            _Handler.icon_bytes = icon_path.read_bytes()
+        except Exception:
+            _Handler.icon_bytes = None
+
     _Handler.loop = loop
-    server = HTTPServer((host, port), _Handler)
+    server = ThreadingHTTPServer((host, port), _Handler)
+    server.daemon_threads = True
 
     def _serve() -> None:
-        server.serve_forever()
+        server.serve_forever(poll_interval=0.1)
 
     thread = threading.Thread(target=_serve, daemon=True)
     thread.start()
