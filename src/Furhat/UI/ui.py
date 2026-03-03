@@ -40,6 +40,12 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     root.title("Furhat Realtime")
     root.minsize(860, 560)
     root.configure(bg="#0f172a")
+    try:
+        icon_path = paths.get_asset_path("app.ico")
+        if icon_path.exists():
+            root.iconbitmap(default=str(icon_path))
+    except Exception:
+        pass
 
     style = ttk.Style(root)
     try:

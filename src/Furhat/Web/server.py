@@ -6,6 +6,7 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
+from urllib.parse import urlparse
 
 try:
     from ..Robot import robot
@@ -26,7 +27,8 @@ HTML = """<!doctype html>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Furhat Web Control</title>
-  <link rel="icon" href="/favicon.ico" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=1" />
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=1" />
   <style>
     body { font-family: Arial, sans-serif; background:#0f172a; color:#e2e8f0; padding:24px; }
     .card { background:#111827; padding:24px; border-radius:16px; max-width:640px; }
@@ -168,6 +170,7 @@ class _Handler(BaseHTTPRequestHandler):
         payload = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
@@ -183,23 +186,25 @@ class _Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path == "/" or self.path.startswith("/index"):
+        path = urlparse(self.path).path
+        if path == "/" or path.startswith("/index"):
             self._send_html(HTML)
             return
-        if self.path == "/favicon.ico":
+        if path == "/favicon.ico":
             if self.icon_bytes:
                 self.send_response(200)
                 self.send_header("Content-Type", "image/x-icon")
+                self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", str(len(self.icon_bytes)))
                 self.end_headers()
                 self.wfile.write(self.icon_bytes)
                 return
             self._send_json({"error": "not found"}, status=404)
             return
-        if self.path == "/api/health":
+        if path == "/api/health":
             self._send_json({"ok": True})
             return
-        if self.path == "/api/status":
+        if path == "/api/status":
             self._send_json(robot.get_runtime_status())
             return
         self._send_json({"error": "not found"}, status=404)
