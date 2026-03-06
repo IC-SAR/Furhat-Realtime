@@ -11,6 +11,7 @@ from .. import paths, settings_store
 from ..Ollama import chatbot
 from .actions import UIActions
 from .state import ShellWidgets, UIState
+from .support import build_web_urls
 from .views.character import build_character_view
 from .views.controls import build_controls_view
 from .views.logs import build_logs_view
@@ -54,7 +55,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
 
     root = tk.Tk()
     root.title("Furhat Realtime")
-    root.minsize(860, 560)
+    root.minsize(900, 620)
     root.configure(bg="#0f172a")
     try:
         icon_path = paths.get_asset_path("app.ico")
@@ -140,6 +141,9 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     notebook.add(logs_tab, text="Logs")
 
     web_port = int(os.getenv("WEB_PORT", "7860"))
+    local_ip = _get_local_ip()
+    web_urls = build_web_urls(web_port, local_ip)
+    validation_dir = paths.get_app_root() / "build" / "validation"
     controls_view = build_controls_view(controls_tab)
     character_view = build_character_view(
         character_tab,
@@ -150,11 +154,11 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         model=settings.model,
         temperature=settings.temperature,
         ip_address=settings.ip,
-        local_ip_text=f"Local IP: {_get_local_ip()}:{web_port}",
+        local_ip_text=f"Local IP: {local_ip}:{web_port}",
         listen_settings=settings.listen.to_dict(),
         voice_settings=settings.voice.to_dict(),
     )
-    system_view = build_system_view(system_tab)
+    system_view = build_system_view(system_tab, web_urls=web_urls)
     logs_view = build_logs_view(logs_tab)
 
     controls_view.frame.pack(fill="both", expand=True)
@@ -164,11 +168,11 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     logs_view.frame.pack(fill="both", expand=True)
     notebook.pack(fill="both", expand=True)
 
-    title_id = canvas.create_window(0, 0, anchor="center", window=title, width=320, height=36)
-    subtitle_id = canvas.create_window(0, 0, anchor="center", window=subtitle, width=360, height=24)
-    status_id = canvas.create_window(0, 0, anchor="center", window=status, width=280, height=24)
-    status_frame_id = canvas.create_window(0, 0, anchor="center", window=status_frame)
-    main_id = canvas.create_window(0, 0, anchor="center", window=main_frame)
+    title_id = canvas.create_window(0, 0, anchor="n", window=title, width=320, height=36)
+    subtitle_id = canvas.create_window(0, 0, anchor="n", window=subtitle, width=360, height=24)
+    status_id = canvas.create_window(0, 0, anchor="n", window=status, width=280, height=24)
+    status_frame_id = canvas.create_window(0, 0, anchor="n", window=status_frame)
+    main_id = canvas.create_window(0, 0, anchor="n", window=main_frame)
 
     shell = ShellWidgets(
         root=root,
@@ -179,7 +183,10 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         status_id=status_id,
         status_frame_id=status_frame_id,
         main_id=main_id,
+        title=title,
+        subtitle=subtitle,
         status=status,
+        status_frame=status_frame,
         robot_state_var=robot_state_var,
         ollama_state_var=ollama_state_var,
         robot_state_label=robot_state_label,
@@ -194,6 +201,8 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         system=system_view,
         settings=settings_view,
         logs=logs_view,
+        web_urls=web_urls,
+        validation_dir=validation_dir,
     )
     actions = UIActions(state)
     actions.bind()

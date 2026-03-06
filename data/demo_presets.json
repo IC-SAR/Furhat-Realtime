@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "global": [
+    {
+      "id": "who-are-you",
+      "label": "Who are you?",
+      "prompt": "Introduce yourself in two short sentences and say what visitors can ask you about today.",
+      "description": "Quick intro"
+    },
+    {
+      "id": "what-can-you-do",
+      "label": "What can you do?",
+      "prompt": "Briefly explain what kinds of questions you can answer for visitors at this booth.",
+      "description": "Capabilities"
+    },
+    {
+      "id": "surprise-me",
+      "label": "Surprise me",
+      "prompt": "Share one short, surprising fact related to science, technology, or learning.",
+      "description": "Random fact"
+    },
+    {
+      "id": "what-should-i-ask",
+      "label": "What should I ask?",
+      "prompt": "Suggest three interesting questions a visitor could ask you at this booth.",
+      "description": "Prompt ideas"
+    }
+  ],
+  "by_character": {
+    "f773797f-93b2-48be-932b-8f40df3a275b": [
+      {
+        "id": "welcome",
+        "label": "Who are you?",
+        "prompt": "Introduce yourself as Pepper at Innovation Day in two short sentences.",
+        "description": "Quick intro"
+      },
+      {
+        "id": "innovation-day",
+        "label": "Innovation Day",
+        "prompt": "Explain what Innovation Day is and why it matters in under 45 seconds.",
+        "description": "Event overview"
+      },
+      {
+        "id": "ancient-civilizations",
+        "label": "Ancient Civilizations",
+        "prompt": "Tell me one fascinating thing about ancient civilizations in a short, engaging way.",
+        "description": "History topic"
+      },
+      {
+        "id": "mars",
+        "label": "Mars",
+        "prompt": "Share an exciting fact about Mars and why people are interested in it.",
+        "description": "Space topic"
+      },
+      {
+        "id": "mitosis-meiosis",
+        "label": "Mitosis vs Meiosis",
+        "prompt": "Explain the difference between mitosis and meiosis in simple language.",
+        "description": "Biology topic"
+      },
+      {
+        "id": "math",
+        "label": "Fun Math",
+        "prompt": "Give me a fun or surprising math idea that a student could enjoy.",
+        "description": "Math topic"
+      },
+      {
+        "id": "python-pixels",
+        "label": "Python Pixels",
+        "prompt": "Explain how Python can be used to make visual or pixel-based projects in a simple way.",
+        "description": "Coding topic"
+      },
+      {
+        "id": "study-tips",
+        "label": "Study Tips",
+        "prompt": "Give me a quick study cheat sheet with three useful learning tips.",
+        "description": "Learning tips"
+      }
+    ]
+  }
+}

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 @dataclass(slots=True)
 class CharacterInfo:
+    char_id: str = ""
     path: str = ""
     name: str = ""
     voice_id: str = ""
@@ -12,6 +13,7 @@ class CharacterInfo:
 
     def to_dict(self) -> dict[str, str]:
         return {
+            "char_id": self.char_id,
             "path": self.path,
             "name": self.name,
             "voice_id": self.voice_id,
@@ -21,21 +23,25 @@ class CharacterInfo:
 
 @dataclass(slots=True)
 class RuntimeStatus:
+    connected: bool = False
     listening: bool = False
     speaking: bool = False
     speech_session: bool = False
     heard: str = ""
     spoken: str = ""
     prompt: str = ""
+    last_error: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "connected": self.connected,
             "listening": self.listening,
             "speaking": self.speaking,
             "speech_session": self.speech_session,
             "heard": self.heard,
             "spoken": self.spoken,
             "prompt": self.prompt,
+            "last_error": self.last_error,
         }
 
 
@@ -70,4 +76,34 @@ class VoiceConfig:
             "name": self.name,
             "rate": self.rate,
             "volume": self.volume,
+        }
+
+
+@dataclass(slots=True)
+class TranscriptTurn:
+    turn_id: int
+    created_at: float
+    channel: str
+    source: str
+    preset_id: str = ""
+    input_text: str = ""
+    spoken_text: str = ""
+    character_name: str = ""
+    model: str = ""
+    status: str = "empty"
+    error: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "turn_id": self.turn_id,
+            "created_at": self.created_at,
+            "channel": self.channel,
+            "source": self.source,
+            "preset_id": self.preset_id,
+            "input_text": self.input_text,
+            "spoken_text": self.spoken_text,
+            "character_name": self.character_name,
+            "model": self.model,
+            "status": self.status,
+            "error": self.error,
         }

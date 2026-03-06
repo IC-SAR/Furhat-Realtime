@@ -1,11 +1,16 @@
 """Launch the Furhat realtime UI and background robot loop."""
 
 import asyncio
+import logging
 import threading
 
+from . import bootstrap
 from .Robot import robot
 from .UI import ui
 from .Web import server as web_server
+
+
+logger = logging.getLogger(__name__)
 
 
 def _start_loop(event_loop: asyncio.AbstractEventLoop) -> None:
@@ -18,6 +23,7 @@ def _start_robot() -> None:
 
 
 def main() -> None:
+    logger.info("Starting Furhat Realtime.")
     # Dedicated asyncio loop on a background thread.
     loop = asyncio.new_event_loop()
     loop_thread = threading.Thread(target=_start_loop, args=(loop,), daemon=True)
@@ -43,5 +49,20 @@ def main() -> None:
     robot.disconnect()
 
 
+def run() -> int:
+    log_path = bootstrap.configure_startup_logging()
+    bootstrap.install_exception_logging()
+    try:
+        main()
+    except Exception:
+        logger.exception("Application startup failed.")
+        bootstrap.show_startup_error(
+            "Furhat Realtime failed to start.",
+            log_path,
+        )
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(run())

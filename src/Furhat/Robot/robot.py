@@ -25,12 +25,20 @@ def get_runtime_status() -> dict[str, object]:
     return runtime.get_runtime_status()
 
 
+def get_transcript() -> list[dict[str, object]]:
+    return runtime.get_transcript()
+
+
+def clear_transcript() -> None:
+    runtime.clear_transcript()
+
+
 async def setup() -> None:
     await runtime.setup()
 
 
-async def on_listen_activate() -> None:
-    await runtime.on_listen_activate()
+async def on_listen_activate(*, channel: str = "desktop") -> None:
+    await runtime.on_listen_activate(channel=channel)
 
 
 async def on_listen_deactivate() -> None:
@@ -113,8 +121,19 @@ async def apply_character_file(
     )
 
 
-async def speak_from_prompt(prompt: str) -> None:
-    await runtime.speak_from_prompt(prompt)
+async def speak_from_prompt(
+    prompt: str,
+    *,
+    channel: str = "desktop",
+    source: str = "manual",
+    preset_id: str = "",
+) -> None:
+    await runtime.speak_from_prompt(
+        prompt,
+        channel=channel,
+        source=source,
+        preset_id=preset_id,
+    )
 
 
 async def reconnect() -> None:

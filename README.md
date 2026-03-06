@@ -32,6 +32,9 @@ python scripts/build_exe.py
 ```
 Output: `dist/Furhat-Realtime.exe`
 
+The packaged Windows app now launches without a console window. If startup
+fails, check the runtime logs in `%LOCALAPPDATA%\Furhat-Realtime\logs\`.
+
 ## Build the Windows installer (Inno Setup)
 1. Install Inno Setup 6 (ISCC) from the official site.
 2. Build the installer:
@@ -56,6 +59,7 @@ If you prefer PowerShell wrappers:
 ## Configuration
 - `src/settings.json` stores IP, model, temperature, listen, voice, and character settings.
 - `src/Furhat/settings.json` is still read as a legacy fallback if the canonical file is missing.
+- `data/demo_presets.json` stores optional public web prompt presets, with `global` presets and per-character overrides by `char_id`.
 - `src/Furhat/Ollama/config.py` sets the default model name.
 - `src/Furhat/version.py` controls app name/version used by the exe and installer.
 - Replace `assets/app.ico` to customize the app icon.
@@ -69,9 +73,12 @@ If you prefer PowerShell wrappers:
 - `RAG_FORCE_REFRESH=1` to force re-download on every run.
 
 ## Web control (optional)
-The app starts a lightweight web server for remote control:
+The app starts a lightweight web server for public booth interaction:
 - URL: `http://127.0.0.1:7860`
+- The web page shows large supplemental preset buttons, free-text input, and press-and-hold listen.
+- Presets are suggestions for visitors who do not know what to ask; they do not replace free text or hold-to-listen.
 - Press and hold to listen, release to speak.
+- Public inputs are guarded by a small cooldown and busy lock so only one booth interaction is accepted at a time.
 - Endpoint overrides:
   - `WEB_ENABLED=0` to disable
   - `WEB_HOST=0.0.0.0` to bind on all interfaces
