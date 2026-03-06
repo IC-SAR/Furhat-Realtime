@@ -52,6 +52,14 @@ class SystemView:
     copy_web_url_button: tk.Button
     preset_status_var: tk.StringVar | None = None
     open_preset_button: tk.Button | None = None
+    reload_preset_button: tk.Button | None = None
+    validate_preset_button: tk.Button | None = None
+    save_preset_button: tk.Button | None = None
+    revert_preset_button: tk.Button | None = None
+    preset_editor: tk.Text | None = None
+    preset_preview_text: tk.Text | None = None
+    preset_editor_state_var: tk.StringVar | None = None
+    preset_validation_var: tk.StringVar | None = None
 
 
 @dataclass(slots=True)
@@ -239,6 +247,16 @@ class UIState:
         if self.logs.transcript_summary_var is None:
             return
         self.logs.transcript_summary_var.set(text)
+
+    def set_system_text(self, widget: tk.Text | None, text: str) -> None:
+        if widget is None:
+            return
+        widget.configure(state="normal")
+        widget.delete("1.0", "end")
+        if text:
+            widget.insert("end", text)
+            widget.see("1.0")
+        widget.configure(state="disabled")
 
     def set_listen_button_enabled(self, enabled: bool) -> None:
         self.listen_button_enabled = bool(enabled)

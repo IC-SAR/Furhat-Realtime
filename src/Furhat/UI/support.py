@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Mapping
 
+from .. import presets_store
+
 
 def _export_timestamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -53,6 +55,39 @@ def write_diagnostics_snapshot(output_dir: Path, snapshot: Mapping[str, object])
     output_path = output_dir / f"ui-session-{timestamp}.json"
     output_path.write_text(json.dumps(dict(snapshot), indent=2), encoding="utf-8")
     return output_path
+
+
+def format_preset_summary(resolved: presets_store.ResolvedPresetSet) -> str:
+    if not resolved.presets:
+        return "Presets: none"
+    if resolved.scope == "character":
+        detail = "character"
+    elif resolved.scope == "global":
+        detail = "global fallback"
+    else:
+        detail = "active"
+    return f"Presets: {len(resolved.presets)} active ({detail})"
+
+
+def build_preset_preview_text(resolved: presets_store.ResolvedPresetSet) -> str:
+    if not resolved.presets:
+        return "No active presets for the current character."
+
+    if resolved.scope == "character":
+        header = "Character-specific active presets"
+    elif resolved.scope == "global":
+        header = "Global fallback active presets"
+    else:
+        header = "Active presets"
+
+    lines = [header, ""]
+    for index, preset in enumerate(resolved.presets, start=1):
+        detail = preset.description.strip() or preset.prompt.strip()
+        if len(detail) > 96:
+            detail = detail[:93].rstrip() + "..."
+        lines.append(f"{index}. {preset.label} [{preset.id}]")
+        lines.append(f"   {detail}")
+    return "\n".join(lines)
 
 
 def build_transcript_summary(

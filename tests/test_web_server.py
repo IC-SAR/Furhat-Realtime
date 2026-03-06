@@ -76,18 +76,31 @@ class WebServerTests(unittest.TestCase):
         path: str,
         body: dict[str, object] | None = None,
     ) -> tuple[int, dict[str, object]]:
-        connection = http.client.HTTPConnection(self.host, self.port, timeout=5)
         payload = None
         headers = {}
         if body is not None:
             payload = json.dumps(body)
             headers["Content-Type"] = "application/json"
-        connection.request(method, path, body=payload, headers=headers)
-        response = connection.getresponse()
-        raw = response.read().decode("utf-8")
-        connection.close()
-        data = json.loads(raw) if raw else {}
-        return response.status, data
+
+        attempts = 2
+        last_error: Exception | None = None
+        for _ in range(attempts):
+            connection = http.client.HTTPConnection(self.host, self.port, timeout=5)
+            try:
+                connection.request(method, path, body=payload, headers=headers)
+                response = connection.getresponse()
+                raw = response.read().decode("utf-8")
+                data = json.loads(raw) if raw else {}
+                return response.status, data
+            except (ConnectionAbortedError, ConnectionResetError) as exc:
+                last_error = exc
+                time.sleep(0.05)
+            finally:
+                connection.close()
+
+        if last_error is not None:
+            raise last_error
+        raise AssertionError("request failed without an exception")
 
     def test_get_health_returns_ok(self) -> None:
         status, data = self._request("GET", "/api/health")

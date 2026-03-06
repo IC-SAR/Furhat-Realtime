@@ -123,6 +123,32 @@ def _load_preset_list(value: object) -> list[PromptPreset]:
     return items
 
 
+def _validate_preset_dict(data: object, *, location: str) -> PromptPreset:
+    if not isinstance(data, dict):
+        raise ValueError(f"{location} must be an object")
+
+    prompt = data.get("prompt", "")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError(f"{location}.prompt must be a non-empty string")
+
+    label = data.get("label", "")
+    if label is not None and not isinstance(label, str):
+        raise ValueError(f"{location}.label must be a string")
+
+    preset_id = data.get("id", "")
+    if preset_id is not None and not isinstance(preset_id, str):
+        raise ValueError(f"{location}.id must be a string")
+
+    description = data.get("description", "")
+    if description is not None and not isinstance(description, str):
+        raise ValueError(f"{location}.description must be a string")
+
+    preset = PromptPreset.from_dict(data)
+    if preset is None:
+        raise ValueError(f"{location} is invalid")
+    return preset
+
+
 def _coerce_character_info(character_info: object) -> dict[str, str]:
     if isinstance(character_info, Mapping):
         return {str(key): str(value) for key, value in character_info.items() if value is not None}
@@ -145,6 +171,64 @@ def ensure_preset_file(*, path: Path | None = None) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
         target.write_text(json.dumps(DEFAULT_PRESET_PAYLOAD, indent=2), encoding="utf-8")
+    return target
+
+
+def validate_preset_payload(data: object) -> PresetFile:
+    if not isinstance(data, dict):
+        raise ValueError("preset file must be a JSON object")
+
+    version = data.get("version", 1)
+    if not isinstance(version, int) or version < 1:
+        raise ValueError("version must be a positive integer")
+
+    global_raw = data.get("global", [])
+    if not isinstance(global_raw, list):
+        raise ValueError("global must be a list")
+    global_presets = [
+        _validate_preset_dict(item, location=f"global[{index}]")
+        for index, item in enumerate(global_raw)
+    ]
+
+    by_character_raw = data.get("by_character", {})
+    if not isinstance(by_character_raw, dict):
+        raise ValueError("by_character must be an object")
+
+    by_character: dict[str, list[PromptPreset]] = {}
+    for key, value in by_character_raw.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("by_character keys must be non-empty strings")
+        if not isinstance(value, list):
+            raise ValueError(f"by_character.{key} must be a list")
+        by_character[key.strip()] = [
+            _validate_preset_dict(item, location=f"by_character.{key}[{index}]")
+            for index, item in enumerate(value)
+        ]
+
+    return PresetFile(
+        version=version,
+        global_presets=global_presets,
+        by_character=by_character,
+    )
+
+
+def parse_preset_text(raw_text: str) -> PresetFile:
+    try:
+        payload = json.loads(str(raw_text))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"invalid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
+    return validate_preset_payload(payload)
+
+
+def format_preset_file(preset_file: PresetFile) -> str:
+    return json.dumps(preset_file.to_dict(), indent=2, ensure_ascii=False) + "\n"
+
+
+def write_preset_file(preset_file: PresetFile, *, path: Path | None = None) -> Path:
+    target = ensure_preset_file(path=path)
+    target.write_text(format_preset_file(preset_file), encoding="utf-8")
     return target
 
 

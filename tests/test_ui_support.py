@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from Furhat.UI import support  # noqa: E402
+from Furhat import presets_store  # noqa: E402
 
 
 class UISupportTests(unittest.TestCase):
@@ -66,6 +67,35 @@ class UISupportTests(unittest.TestCase):
             self.assertTrue(output_path.exists())
             written = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(written, snapshot)
+
+    def test_format_preset_summary_and_preview_for_character_scope(self) -> None:
+        resolved = presets_store.ResolvedPresetSet(
+            scope="character",
+            presets=[
+                presets_store.PromptPreset(
+                    id="welcome",
+                    label="Who are you?",
+                    prompt="Introduce yourself in two short sentences.",
+                    description="Quick intro",
+                )
+            ],
+            character_key="pepper",
+        )
+
+        summary = support.format_preset_summary(resolved)
+        preview = support.build_preset_preview_text(resolved)
+
+        self.assertEqual(summary, "Presets: 1 active (character)")
+        self.assertIn("Character-specific active presets", preview)
+        self.assertIn("Who are you? [welcome]", preview)
+        self.assertIn("Quick intro", preview)
+
+    def test_build_preset_preview_text_handles_empty_active_set(self) -> None:
+        preview = support.build_preset_preview_text(
+            presets_store.ResolvedPresetSet(scope="none", presets=[])
+        )
+
+        self.assertEqual(preview, "No active presets for the current character.")
 
 
 if __name__ == "__main__":

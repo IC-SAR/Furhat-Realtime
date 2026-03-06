@@ -53,6 +53,55 @@ class PresetsStoreTests(unittest.TestCase):
             self.assertEqual(len(loaded.global_presets), 1)
             self.assertEqual(loaded.global_presets[0].to_dict()["label"], "Who are you?")
 
+    def test_parse_preset_text_validates_schema(self) -> None:
+        parsed = presets_store.parse_preset_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "global": [{"label": "Intro", "prompt": "Hello there"}],
+                    "by_character": {"pepper": [{"id": "char", "prompt": "Hi"}]},
+                }
+            )
+        )
+
+        self.assertEqual(parsed.version, 1)
+        self.assertEqual(parsed.global_presets[0].label, "Intro")
+        self.assertEqual(parsed.by_character["pepper"][0].id, "char")
+
+    def test_parse_preset_text_rejects_invalid_json(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid JSON"):
+            presets_store.parse_preset_text("{")
+
+    def test_parse_preset_text_rejects_invalid_schema(self) -> None:
+        with self.assertRaisesRegex(ValueError, "global\\[0\\]\\.prompt must be a non-empty string"):
+            presets_store.parse_preset_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "global": [{"label": "Broken", "prompt": ""}],
+                        "by_character": {},
+                    }
+                )
+            )
+
+    def test_write_preset_file_normalizes_and_round_trips(self) -> None:
+        preset_file = presets_store.PresetFile.from_dict(
+            {
+                "version": 1,
+                "global": [{"label": "Intro", "prompt": "Hello there"}],
+                "by_character": {},
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            preset_path = Path(temp_dir) / "demo_presets.json"
+            written = presets_store.write_preset_file(preset_file, path=preset_path)
+
+            self.assertEqual(written, preset_path)
+            self.assertTrue(preset_path.read_text(encoding="utf-8").endswith("\n"))
+            reloaded = presets_store.parse_preset_text(preset_path.read_text(encoding="utf-8"))
+            self.assertEqual(reloaded.global_presets[0].prompt, "Hello there")
+
     def test_resolve_active_presets_prefers_character_then_global(self) -> None:
         preset_file = presets_store.PresetFile.from_dict(
             {

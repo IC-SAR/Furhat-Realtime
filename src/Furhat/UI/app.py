@@ -49,6 +49,81 @@ def _draw_gradient(canvas: tk.Canvas) -> None:
     canvas.lower("gradient")
 
 
+def _make_scrollable_tab(
+    parent: tk.Frame,
+    root: tk.Tk,
+) -> tuple[tk.Frame, tk.Frame]:
+    container = tk.Frame(parent, bg="#0f172a")
+    canvas = tk.Canvas(
+        container,
+        highlightthickness=0,
+        bd=0,
+        bg="#0f172a",
+        yscrollincrement=24,
+    )
+    scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
+    content = tk.Frame(canvas, bg="#0f172a")
+    window_id = canvas.create_window((0, 0), anchor="nw", window=content)
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    def _update_scrollregion(_event: object | None = None) -> None:
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def _resize_content(event: tk.Event[tk.Canvas]) -> None:
+        canvas.itemconfigure(window_id, width=event.width)
+
+    def _activate_scroll(_event: object | None = None) -> None:
+        setattr(root, "_furhat_active_scroll_canvas", canvas)
+
+    def _deactivate_scroll(_event: object | None = None) -> None:
+        if getattr(root, "_furhat_active_scroll_canvas", None) is canvas:
+            setattr(root, "_furhat_active_scroll_canvas", None)
+
+    content.bind("<Configure>", _update_scrollregion, add="+")
+    canvas.bind("<Configure>", _resize_content, add="+")
+    container.bind("<Enter>", _activate_scroll, add="+")
+    container.bind("<Leave>", _deactivate_scroll, add="+")
+
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    if not getattr(root, "_furhat_scrollwheel_bound", False):
+        def _on_mousewheel(event: object) -> str | None:
+            active_canvas = getattr(root, "_furhat_active_scroll_canvas", None)
+            if active_canvas is None:
+                return None
+            scrollregion = active_canvas.cget("scrollregion")
+            if not scrollregion:
+                return None
+            try:
+                _, top, _, bottom = [float(value) for value in str(scrollregion).split()]
+            except Exception:
+                top = bottom = 0.0
+            if bottom - top <= active_canvas.winfo_height():
+                return None
+
+            delta = 0
+            event_delta = int(getattr(event, "delta", 0) or 0)
+            event_num = int(getattr(event, "num", 0) or 0)
+            if event_delta:
+                delta = -1 if event_delta > 0 else 1
+            elif event_num == 4:
+                delta = -1
+            elif event_num == 5:
+                delta = 1
+            if delta == 0:
+                return None
+            active_canvas.yview_scroll(delta, "units")
+            return "break"
+
+        root.bind_all("<MouseWheel>", _on_mousewheel, add="+")
+        root.bind_all("<Button-4>", _on_mousewheel, add="+")
+        root.bind_all("<Button-5>", _on_mousewheel, add="+")
+        setattr(root, "_furhat_scrollwheel_bound", True)
+
+    return container, content
+
+
 def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     settings = settings_store.load_settings()
     chatbot.load_saved_settings(settings.model, settings.temperature)
@@ -144,13 +219,16 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     local_ip = _get_local_ip()
     web_urls = build_web_urls(web_port, local_ip)
     validation_dir = paths.get_app_root() / "build" / "validation"
+    settings_scroll_host, settings_scroll_parent = _make_scrollable_tab(settings_tab, root)
+    system_scroll_host, system_scroll_parent = _make_scrollable_tab(system_tab, root)
+    logs_scroll_host, logs_scroll_parent = _make_scrollable_tab(logs_tab, root)
     controls_view = build_controls_view(controls_tab)
     character_view = build_character_view(
         character_tab,
         character_path=settings.character_path,
     )
     settings_view = build_settings_view(
-        settings_tab,
+        settings_scroll_parent,
         model=settings.model,
         temperature=settings.temperature,
         ip_address=settings.ip,
@@ -158,13 +236,16 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         listen_settings=settings.listen.to_dict(),
         voice_settings=settings.voice.to_dict(),
     )
-    system_view = build_system_view(system_tab, web_urls=web_urls)
-    logs_view = build_logs_view(logs_tab)
+    system_view = build_system_view(system_scroll_parent, web_urls=web_urls)
+    logs_view = build_logs_view(logs_scroll_parent)
 
     controls_view.frame.pack(fill="both", expand=True)
     character_view.frame.pack(fill="both", expand=True)
+    settings_scroll_host.pack(fill="both", expand=True)
     settings_view.frame.pack(fill="both", expand=True)
+    system_scroll_host.pack(fill="both", expand=True)
     system_view.frame.pack(fill="both", expand=True)
+    logs_scroll_host.pack(fill="both", expand=True)
     logs_view.frame.pack(fill="both", expand=True)
     notebook.pack(fill="both", expand=True)
 

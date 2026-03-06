@@ -23,6 +23,10 @@ from .state import UIState
 class UIActions:
     def __init__(self, state: UIState) -> None:
         self.state = state
+        self._preset_path = presets_store.get_preset_file_path()
+        self._preset_loaded_text = ""
+        self._preset_loaded_source_text = ""
+        self._preset_loaded_mtime: float | None = None
 
     def bind(self) -> None:
         robot.set_log_callback(lambda message: self.state.root.after(0, self.handle_robot_log, message))
@@ -64,6 +68,16 @@ class UIActions:
         self.state.logs.open_validation_button.configure(command=self.open_validation_folder)
         if self.state.system.open_preset_button is not None:
             self.state.system.open_preset_button.configure(command=self.open_preset_file)
+        if self.state.system.reload_preset_button is not None:
+            self.state.system.reload_preset_button.configure(command=self.reload_preset_file)
+        if self.state.system.validate_preset_button is not None:
+            self.state.system.validate_preset_button.configure(command=self.validate_preset_editor)
+        if self.state.system.save_preset_button is not None:
+            self.state.system.save_preset_button.configure(command=self.save_preset_editor)
+        if self.state.system.revert_preset_button is not None:
+            self.state.system.revert_preset_button.configure(command=self.revert_preset_editor)
+        if self.state.system.preset_editor is not None:
+            self.state.system.preset_editor.bind("<<Modified>>", self.on_preset_editor_modified)
         if self.state.logs.export_transcript_button is not None:
             self.state.logs.export_transcript_button.configure(command=self.export_transcript)
         if self.state.logs.clear_transcript_button is not None:
@@ -74,7 +88,7 @@ class UIActions:
         self.refresh_character_list()
         self.refresh_character_status()
         self.refresh_rag_status()
-        self.refresh_preset_summary()
+        self.reload_preset_from_disk()
         self.refresh_model_list()
         self.refresh_runtime_state()
         self.refresh_transcript()
@@ -85,7 +99,7 @@ class UIActions:
         self.state.root.after(200, self.state.controls.listen_button.focus_set)
         self.state.root.after(1000, self.poll_runtime_state)
         self.state.root.after(1000, self.poll_transcript)
-        self.state.root.after(5000, self.poll_preset_summary)
+        self.state.root.after(5000, self.poll_presets)
         self.state.root.after(1500, self.refresh_character_status)
         self.state.root.after(2000, self.refresh_rag_status)
 
@@ -188,7 +202,7 @@ class UIActions:
         if "character loaded" in msg or "rag " in msg:
             self.state.root.after(0, self.refresh_character_status)
             self.state.root.after(400, self.refresh_rag_status)
-            self.state.root.after(0, self.refresh_preset_summary)
+            self.state.root.after(0, self.refresh_preset_panel)
         self.state.root.after(0, self.refresh_transcript)
         self.state.root.after(0, self.refresh_runtime_state)
 
@@ -200,9 +214,29 @@ class UIActions:
         self.refresh_transcript()
         self.state.root.after(1000, self.poll_transcript)
 
-    def poll_preset_summary(self) -> None:
-        self.refresh_preset_summary()
-        self.state.root.after(5000, self.poll_preset_summary)
+    def poll_presets(self) -> None:
+        snapshot = self._read_preset_snapshot()
+        _, _, mtime, _, _ = snapshot
+        if (
+            self._preset_loaded_mtime is not None
+            and mtime is not None
+            and mtime != self._preset_loaded_mtime
+        ):
+            if self._is_preset_editor_dirty():
+                self.refresh_preset_panel(snapshot)
+                self._set_preset_editor_state(
+                    "Preset file changed on disk; editor has unsaved changes"
+                )
+            else:
+                error = self.reload_preset_from_disk(snapshot=snapshot)
+                if error:
+                    self._set_preset_editor_state("Preset file reloaded from disk with errors")
+                else:
+                    self._set_preset_editor_state("Preset file reloaded from disk")
+        else:
+            self.refresh_preset_panel(snapshot)
+            self._update_preset_editor_state()
+        self.state.root.after(5000, self.poll_presets)
 
     def _sync_main_status(self, status: dict[str, object]) -> None:
         listening = bool(status.get("listening"))
@@ -285,20 +319,36 @@ class UIActions:
         self.state.character.character_status_var.set(f"Active: {name} | Voice: {voice}")
 
     def refresh_preset_summary(self) -> None:
-        if self.state.system.preset_status_var is None:
+        self.refresh_preset_panel()
+
+    def refresh_preset_panel(
+        self,
+        snapshot: tuple[Path, str, float | None, presets_store.PresetFile | None, str] | None = None,
+    ) -> None:
+        if self.state.system.preset_status_var is None and self.state.system.preset_preview_text is None:
             return
-        resolved = presets_store.resolve_active_presets(robot.get_character_info(), limit=8)
-        if not resolved.presets:
-            self.state.system.preset_status_var.set("Presets: none")
+
+        snapshot = snapshot or self._read_preset_snapshot()
+        _, _, _, preset_file, error = snapshot
+        if error:
+            if self.state.system.preset_status_var is not None:
+                self.state.system.preset_status_var.set("Presets: invalid file")
+            self.state.set_system_text(
+                self.state.system.preset_preview_text,
+                f"Preset file is invalid.\n\n{error}",
+            )
             return
-        if resolved.scope == "character":
-            detail = "character"
-        elif resolved.scope == "global":
-            detail = "global fallback"
-        else:
-            detail = "active"
-        self.state.system.preset_status_var.set(
-            f"Presets: {len(resolved.presets)} active ({detail})"
+
+        resolved = presets_store.resolve_active_presets(
+            robot.get_character_info(),
+            limit=8,
+            preset_file=preset_file,
+        )
+        if self.state.system.preset_status_var is not None:
+            self.state.system.preset_status_var.set(support.format_preset_summary(resolved))
+        self.state.set_system_text(
+            self.state.system.preset_preview_text,
+            support.build_preset_preview_text(resolved),
         )
 
     def refresh_transcript(self) -> None:
@@ -425,9 +475,57 @@ class UIActions:
         except Exception as exc:
             self.state.flash_status(f"preset file error: {exc}", "#f87171", duration_ms=5000)
             return
+        self._preset_path = preset_path
+        self.reload_preset_from_disk()
         if self._open_path(preset_path):
-            self.refresh_preset_summary()
             self.state.flash_status("opened preset file", "#4ade80")
+
+    def reload_preset_file(self) -> None:
+        error = self.reload_preset_from_disk()
+        if error:
+            self.state.flash_status(f"preset reload warning: {error}", "#fbbf24", duration_ms=5000)
+            return
+        self.state.flash_status("preset file reloaded", "#4ade80")
+
+    def validate_preset_editor(self) -> bool:
+        try:
+            presets_store.parse_preset_text(self._get_preset_editor_text())
+        except Exception as exc:
+            self._set_preset_validation(f"Validation: {exc}")
+            self.state.flash_status(f"preset validation error: {exc}", "#f87171", duration_ms=5000)
+            return False
+        self._set_preset_validation("Validation: valid preset JSON")
+        self.state.flash_status("preset file is valid", "#4ade80")
+        return True
+
+    def save_preset_editor(self) -> None:
+        try:
+            preset_file = presets_store.parse_preset_text(self._get_preset_editor_text())
+        except Exception as exc:
+            self._set_preset_validation(f"Validation: {exc}")
+            self.state.flash_status(f"preset save blocked: {exc}", "#f87171", duration_ms=5000)
+            return
+
+        try:
+            output_path = presets_store.write_preset_file(preset_file, path=self._preset_path)
+        except Exception as exc:
+            self.state.flash_status(f"preset save error: {exc}", "#f87171", duration_ms=5000)
+            return
+
+        self.reload_preset_from_disk()
+        self._set_preset_validation("Validation: saved valid preset JSON")
+        self.state.add_log(f"preset file saved: {output_path.name}")
+        self.state.flash_status("preset file saved", "#4ade80")
+
+    def revert_preset_editor(self) -> None:
+        if not self._preset_loaded_source_text and self._preset_path.exists():
+            self.reload_preset_from_disk()
+            self.state.flash_status("preset editor reverted", "#4ade80")
+            return
+        self._set_preset_editor_text(self._preset_loaded_source_text)
+        self._update_preset_editor_state()
+        self._set_preset_validation("Validation: reverted to last loaded snapshot")
+        self.state.flash_status("preset editor reverted", "#4ade80")
 
     def open_web_ui(self) -> None:
         url = self.state.web_urls.get("loopback", "").strip()
@@ -608,6 +706,99 @@ class UIActions:
     def clear_context(self) -> None:
         chatbot.clear_messages()
         self.state.flash_status("context cleared", "#4ade80")
+
+    def _normalize_preset_text(self, text: str) -> str:
+        return str(text).replace("\r\n", "\n").rstrip("\n")
+
+    def _get_preset_editor_text(self) -> str:
+        widget = self.state.system.preset_editor
+        if widget is None:
+            return ""
+        return self._normalize_preset_text(widget.get("1.0", "end-1c"))
+
+    def _set_preset_editor_text(self, text: str) -> None:
+        widget = self.state.system.preset_editor
+        if widget is None:
+            return
+        widget.delete("1.0", "end")
+        if text:
+            widget.insert("1.0", text)
+        try:
+            widget.edit_modified(False)
+        except Exception:
+            pass
+
+    def _is_preset_editor_dirty(self) -> bool:
+        return self._get_preset_editor_text() != self._preset_loaded_text
+
+    def _set_preset_editor_state(self, message: str) -> None:
+        if self.state.system.preset_editor_state_var is None:
+            return
+        self.state.system.preset_editor_state_var.set(message)
+
+    def _update_preset_editor_state(self) -> None:
+        loaded_at = (
+            time.strftime("%H:%M:%S", time.localtime(self._preset_loaded_mtime))
+            if self._preset_loaded_mtime
+            else "not loaded"
+        )
+        state = "modified in editor" if self._is_preset_editor_dirty() else "synced to disk"
+        self._set_preset_editor_state(f"Preset file: {state} | last loaded {loaded_at}")
+
+    def _set_preset_validation(self, message: str) -> None:
+        if self.state.system.preset_validation_var is None:
+            return
+        self.state.system.preset_validation_var.set(message)
+
+    def _read_preset_snapshot(
+        self,
+    ) -> tuple[Path, str, float | None, presets_store.PresetFile | None, str]:
+        path = presets_store.ensure_preset_file(path=self._preset_path)
+        try:
+            raw_text = path.read_text(encoding="utf-8")
+        except Exception as exc:
+            return path, "", None, None, str(exc)
+        try:
+            mtime = path.stat().st_mtime
+        except Exception:
+            mtime = None
+        try:
+            preset_file = presets_store.parse_preset_text(raw_text)
+        except Exception as exc:
+            return path, raw_text, mtime, None, str(exc)
+        return path, raw_text, mtime, preset_file, ""
+
+    def reload_preset_from_disk(
+        self,
+        *,
+        snapshot: tuple[Path, str, float | None, presets_store.PresetFile | None, str] | None = None,
+    ) -> str:
+        path, raw_text, mtime, preset_file, error = snapshot or self._read_preset_snapshot()
+        self._preset_path = path
+        self._preset_loaded_source_text = raw_text
+        self._preset_loaded_text = self._normalize_preset_text(raw_text)
+        self._preset_loaded_mtime = mtime
+        self._set_preset_editor_text(raw_text)
+        self._update_preset_editor_state()
+        if error:
+            self._set_preset_validation(f"Validation: {error}")
+        else:
+            self._set_preset_validation("Validation: valid preset JSON")
+        self.refresh_preset_panel((path, raw_text, mtime, preset_file, error))
+        return error
+
+    def on_preset_editor_modified(self, _event: object) -> None:
+        widget = self.state.system.preset_editor
+        if widget is None:
+            return
+        try:
+            modified = bool(widget.edit_modified())
+            widget.edit_modified(False)
+        except Exception:
+            modified = True
+        if not modified:
+            return
+        self._update_preset_editor_state()
 
     def _build_settings(self) -> AppSettings:
         return AppSettings(
