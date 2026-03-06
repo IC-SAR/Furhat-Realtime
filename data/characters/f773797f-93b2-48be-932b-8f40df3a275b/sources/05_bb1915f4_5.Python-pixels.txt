@@ -1,0 +1,40 @@
+## 5) Python Pixels with `Painter()` 🎨🐍
+
+**Skill Focus:** Computational thinking, debugging, abstraction
+
+**Game Concept – “Pixel Code Challenge”**
+Furhat describes an image; students predict or write code.
+
+**Challenge Ideas:**
+
+- “What shape will this code draw?”
+- “Fix the bug: the painter isn’t turning correctly.”
+- “Change one line to make it a plus instead of a line.”
+
+**Sample Prompts:**
+
+- “What does `move()` do after `paint()`?”
+- “How could a loop shorten this code?”
+
+**Checks & Feedback:**
+
+- “Great catch—that function name matters!”
+- “Nice abstraction. You reduced repetition.”
+
+
+### Code Understanding Answers
+	•	paint(color) → Colors the current square
+	•	move() → Moves the painter forward one space
+	•	turn_right() → Changes direction 90 degrees
+
+### Bug-Fix Answers
+	•	Error caused by wrong function name → Fix spelling or correct import
+	•	Painter not turning → Missing turn function call
+
+### Shape Challenge Answers
+	•	Straight line → Repeated paint + move
+	•	Plus sign → Paint center, turn, paint perpendicular directions
+
+### Abstraction Answer
+
+“Loops reduce repeated code and make programs shorter and easier to understand.”

@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import re
@@ -6,16 +5,15 @@ from typing import Generator
 
 import ollama
 
-try:
-    from . import config
-except ImportError:
-    import config
+from . import config
 
 logger = logging.getLogger(__name__)
 
 system_prompt: str | None = None
 _chat_model_ok: set[str] = set()
 MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "120"))
+MAX_HISTORY_MESSAGES = int(os.getenv("CHAT_MAX_HISTORY_MESSAGES", "16"))
+MAX_HISTORY_CHARS = int(os.getenv("CHAT_MAX_HISTORY_CHARS", "8000"))
 
 
 def check_for_model(model: str) -> None:
@@ -62,6 +60,15 @@ def set_model(model: str) -> None:
 
 def get_model() -> str:
     return current_model
+
+
+def load_saved_settings(model: str, temperature: float) -> None:
+    global current_model
+    global current_temperature
+    model = model.strip()
+    if model:
+        current_model = model
+    current_temperature = float(temperature)
 
 
 def set_temperature(value: float) -> None:
@@ -130,15 +137,27 @@ def _ensure_system_prompt() -> None:
     non_system = [m for m in messages if m.get("role") != "system"]
     messages[:] = [{"role": "system", "content": system_prompt}, *non_system]
 
+def _trim_history() -> None:
+    if MAX_HISTORY_MESSAGES > 0 and len(messages) > MAX_HISTORY_MESSAGES:
+        system = [m for m in messages if m.get("role") == "system"]
+        rest = [m for m in messages if m.get("role") != "system"]
+        messages[:] = system + rest[-MAX_HISTORY_MESSAGES:]
 
-async def get_full_response(prompt: str) -> str:
-    # Offload the heavy network call to a background thread
-    return await asyncio.to_thread(_sync_get_full_response, prompt)
+    if MAX_HISTORY_CHARS > 0:
+        system = [m for m in messages if m.get("role") == "system"]
+        rest = [m for m in messages if m.get("role") != "system"]
+        total_chars = sum(len(m.get("content", "")) for m in rest)
+        while rest and total_chars > MAX_HISTORY_CHARS:
+            removed = rest.pop(0)
+            total_chars -= len(removed.get("content", ""))
+        messages[:] = system + rest
 
-def _sync_get_full_response(prompt: str) -> str:
+
+def get_full_response(prompt: str) -> str:
     _ensure_system_prompt()
     _validate_chat_model(current_model)
     messages.append({"role": "user", "content": prompt})
+    _trim_history()
     stream = client.chat(
         model=current_model,
         messages=messages,
@@ -148,6 +167,7 @@ def _sync_get_full_response(prompt: str) -> str:
     response = stream.message.content
     if response:
         messages.append({"role": "assistant", "content": response})
+        _trim_history()
     return response
 
 
@@ -163,6 +183,7 @@ def get_response_by_token(prompt: str) -> Generator[str, None, None]:
     _ensure_system_prompt()
     _validate_chat_model(current_model)
     messages.append({"role": "user", "content": prompt})
+    _trim_history()
     full_response: str = ""
     stream = client.chat(
         model=current_model,
@@ -179,6 +200,7 @@ def get_response_by_token(prompt: str) -> Generator[str, None, None]:
 
     if full_response:
         messages.append({"role": "assistant", "content": full_response})
+        _trim_history()
 
 
 def get_response_by_regex(prompt: str, regex: str) -> Generator[str, None, None]:

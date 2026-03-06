@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 import logging
 import math
@@ -100,13 +99,14 @@ def reload_index() -> Optional[RagIndex]:
     _INDEX_CHECKED = False
     return get_index()
 
-async def retrieve_context(query: str, k: int = TOP_K, max_chars: int = MAX_CONTEXT_CHARS) -> str:
-    # Offload the blocking part of the logic to a separate thread
-    # This lets your 'still thinking' loop keep running in the main thread
-    return await asyncio.to_thread(_sync_retrieve_context, query, k, max_chars)
+def set_index_path(path: Path) -> None:
+    global INDEX_PATH, _INDEX, _INDEX_CHECKED
+    INDEX_PATH = Path(path)
+    _INDEX = None
+    _INDEX_CHECKED = False
 
 
-def _sync_retrieve_context(query: str, k: int = TOP_K, max_chars: int = MAX_CONTEXT_CHARS) -> str:
+def retrieve_context(query: str, k: int = TOP_K, max_chars: int = MAX_CONTEXT_CHARS) -> str:
     index = get_index()
     if index is None:
         return ""
