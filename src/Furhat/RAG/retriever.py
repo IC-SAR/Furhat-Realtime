@@ -99,7 +99,6 @@ def reload_index() -> Optional[RagIndex]:
     _INDEX_CHECKED = False
     return get_index()
 
-
 def set_index_path(path: Path) -> None:
     global INDEX_PATH, _INDEX, _INDEX_CHECKED
     INDEX_PATH = Path(path)

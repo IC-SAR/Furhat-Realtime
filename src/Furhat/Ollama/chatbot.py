@@ -137,7 +137,6 @@ def _ensure_system_prompt() -> None:
     non_system = [m for m in messages if m.get("role") != "system"]
     messages[:] = [{"role": "system", "content": system_prompt}, *non_system]
 
-
 def _trim_history() -> None:
     if MAX_HISTORY_MESSAGES > 0 and len(messages) > MAX_HISTORY_MESSAGES:
         system = [m for m in messages if m.get("role") == "system"]

@@ -28,6 +28,12 @@ CONNECT_RETRY_MAX_SEC = 20.0
 CONNECT_LOG_INTERVAL_SEC = 10.0
 SPEAK_THINKING = os.getenv("SPEAK_THINKING", "1").lower() in {"1", "true", "yes", "y", "on"}
 THINKING_DELAY_SEC = float(os.getenv("THINKING_DELAY_SEC", "0.6"))
+THINKING_REPEAT_SEC = float(
+    os.getenv(
+        "THINKING_REPEAT_SEC",
+        str(robot_config.THINKING_RESPONSE_INTERVAL_SECONDS),
+    )
+)
 SPEAK_WAIT_TIMEOUT = float(os.getenv("SPEAK_WAIT_TIMEOUT", "20"))
 THINKING_WAIT_TIMEOUT = float(os.getenv("THINKING_WAIT_TIMEOUT", "8"))
 OLLAMA_RESPONSE_TIMEOUT = float(os.getenv("OLLAMA_RESPONSE_TIMEOUT", "20"))
@@ -35,12 +41,7 @@ RAG_RETRIEVAL_TIMEOUT = float(os.getenv("RAG_RETRIEVAL_TIMEOUT", "10"))
 OLLAMA_MAX_CONCURRENT = max(1, int(os.getenv("OLLAMA_MAX_CONCURRENT", "1")))
 DISCONNECT_TIMEOUT = float(os.getenv("FURHAT_DISCONNECT_TIMEOUT", "3"))
 MAX_TRANSCRIPT_TURNS = 100
-THINKING_PHRASES = [
-    "One moment while I think.",
-    "Let me think about that.",
-    "Give me a second.",
-    "Thinking...",
-]
+THINKING_PHRASES = list(robot_config.GENERATION_RESPONSES)
 
 
 class RobotRuntime:
@@ -299,6 +300,7 @@ class RobotRuntime:
         )
 
     async def on_listen_deactivate(self) -> None:
+        await asyncio.sleep(max(0.0, robot_config.USER_LETGO_DEBOUNCER_SECONDS))
         logger.info("Not listening...")
         self._notify("listening stopped")
         self.runtime_status.listening = False
@@ -645,13 +647,16 @@ class RobotRuntime:
 
                 async def _maybe_think() -> None:
                     await asyncio.sleep(max(0.0, THINKING_DELAY_SEC))
-                    if not response_ready.is_set() and not self._is_session_cancelled(session_id):
+                    while not response_ready.is_set() and not self._is_session_cancelled(session_id):
                         await self._speak_text_safe(
                             random.choice(THINKING_PHRASES),
                             wait=True,
                             abort=True,
                             timeout=THINKING_WAIT_TIMEOUT,
                         )
+                        if THINKING_REPEAT_SEC <= 0:
+                            break
+                        await asyncio.sleep(THINKING_REPEAT_SEC)
 
                 thinking_task = asyncio.create_task(_maybe_think())
 
