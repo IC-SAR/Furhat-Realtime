@@ -1,4 +1,4 @@
-"""Launch the Furhat realtime UI and background robot loop."""
+from __future__ import annotations
 
 import asyncio
 import threading
@@ -18,18 +18,13 @@ def _start_robot() -> None:
 
 
 def main() -> None:
-    # Dedicated asyncio loop on a background thread.
     loop = asyncio.new_event_loop()
     loop_thread = threading.Thread(target=_start_loop, args=(loop,), daemon=True)
     loop_thread.start()
 
-    # Create the UI and pass the asyncio loop so callbacks can schedule coroutines safely.
     root = ui.create_ui(loop=loop)
-
-    # Start the web control server (for the exe and remote control).
     web_server.start_server(loop)
 
-    # Run the robot loop in a worker thread so the UI stays responsive.
     worker_thread = threading.Thread(target=_start_robot, daemon=True)
     worker_thread.start()
 

@@ -4,25 +4,20 @@ import asyncio
 import hashlib
 import json
 import os
-import sys
 import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Mapping, Optional
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-try:
-    from ..RAG import builder, retriever
-    from .. import paths
-except ImportError:
-    # Allow running as a script (python src/Furhat/main.py).
-    from RAG import builder, retriever
-    import paths
+from ..RAG import builder, retriever
+from .. import paths
+from .. import settings_store
+from ..settings_store import AppSettings
 
 
-PROJECT_ROOT = paths.get_app_root()
 CHARACTER_ENV_VARS = ("FURHAT_CHARACTER_FILE", "CHARACTER_FILE")
 DEFAULT_CHAR_DIR = paths.get_data_root() / "characters"
 DEFAULT_TIMEOUT = 15
@@ -38,6 +33,16 @@ class CharacterData:
     voice_id: str
     face_id: str
     external_links: list[str]
+
+
+@dataclass(slots=True)
+class CharacterRagStatus:
+    state: str
+    entries: int = 0
+    built_at: float | None = None
+    index_path: str = ""
+    manifest_path: str = ""
+    error: str = ""
 
 
 def _notify(notify: Optional[Callable[[str], None]], message: str) -> None:
@@ -102,26 +107,62 @@ def load_character(path: Path) -> CharacterData:
     )
 
 
-def find_character_file() -> Optional[Path]:
-    for key in CHARACTER_ENV_VARS:
-        candidate = os.getenv(key)
-        if candidate:
-            path = Path(candidate).expanduser()
-            if path.is_file():
-                return path
+def _resolve_candidate_path(candidate: str | Path, *, app_root: Path) -> Optional[Path]:
+    path = Path(candidate).expanduser()
+    if not path.is_absolute():
+        path = app_root / path
+    if path.is_file():
+        return path.resolve()
+    return None
 
-    preferred = PROJECT_ROOT / "Pepper - Innovation Day.json"
-    if preferred.is_file():
-        return preferred
 
-    for path in PROJECT_ROOT.glob("*.json"):
+def list_character_files(*, app_root: Path | None = None) -> list[Path]:
+    root = app_root or paths.get_app_root()
+    files: list[Path] = []
+    for path in sorted(root.glob("*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             continue
         if isinstance(data, dict) and "externalLinks" in data:
-            return path
+            files.append(path)
+    return files
+
+
+def resolve_startup_character(
+    settings: AppSettings | None = None,
+    *,
+    app_root: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Optional[Path]:
+    root = app_root or paths.get_app_root()
+    settings = settings or settings_store.load_settings()
+    if settings.character_path:
+        resolved = _resolve_candidate_path(settings.character_path, app_root=root)
+        if resolved:
+            return resolved
+
+    current_env = env or os.environ
+    for key in CHARACTER_ENV_VARS:
+        candidate = current_env.get(key)
+        if candidate:
+            resolved = _resolve_candidate_path(candidate, app_root=root)
+            if resolved:
+                return resolved
+
+    preferred = root / "Pepper - Innovation Day.json"
+    if preferred.is_file():
+        return preferred
+
+    files = list_character_files(app_root=root)
+    if files:
+        return files[0]
     return None
+
+
+def find_character_file() -> Optional[Path]:
+    settings = settings_store.load_settings()
+    return resolve_startup_character(settings)
 
 
 def _write_manifest(path: Path, links: list[str]) -> None:
@@ -182,6 +223,50 @@ def get_character_storage_dir(character_path: Path) -> Path:
 
 def get_character_sources_dir(character_path: Path) -> Path:
     return get_character_storage_dir(character_path) / "sources"
+
+
+def get_character_rag_status(character_path: Path) -> CharacterRagStatus:
+    if not character_path.exists():
+        return CharacterRagStatus(state="missing_character", error="character file missing")
+    try:
+        base_dir = get_character_storage_dir(character_path)
+    except Exception as exc:
+        return CharacterRagStatus(state="error", error=str(exc))
+
+    index_meta_path = base_dir / "rag_index.json"
+    manifest_path = base_dir / "rag_manifest.json"
+    if not index_meta_path.exists():
+        return CharacterRagStatus(
+            state="not_built",
+            index_path=str(index_meta_path),
+            manifest_path=str(manifest_path),
+        )
+
+    try:
+        index_meta = json.loads(index_meta_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return CharacterRagStatus(
+            state="error",
+            index_path=str(index_meta_path),
+            manifest_path=str(manifest_path),
+            error=str(exc),
+        )
+
+    built_at: float | None = None
+    if manifest_path.exists():
+        try:
+            refresh_meta = json.loads(manifest_path.read_text(encoding="utf-8"))
+            built_at = float(refresh_meta.get("built_at", 0)) or None
+        except Exception:
+            built_at = None
+
+    return CharacterRagStatus(
+        state="ready",
+        entries=int(index_meta.get("entries", 0) or 0),
+        built_at=built_at,
+        index_path=str(index_meta_path),
+        manifest_path=str(manifest_path),
+    )
 
 
 def _prepare_character_rag_sync(

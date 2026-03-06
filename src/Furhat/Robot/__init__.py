@@ -1,1 +1,1 @@
-from .robot import furhat
+from .robot import *  # noqa: F401,F403

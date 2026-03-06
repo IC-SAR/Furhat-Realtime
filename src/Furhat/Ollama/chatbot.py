@@ -5,10 +5,7 @@ from typing import Generator
 
 import ollama
 
-try:
-    from . import config
-except ImportError:
-    import config
+from . import config
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +60,15 @@ def set_model(model: str) -> None:
 
 def get_model() -> str:
     return current_model
+
+
+def load_saved_settings(model: str, temperature: float) -> None:
+    global current_model
+    global current_temperature
+    model = model.strip()
+    if model:
+        current_model = model
+    current_temperature = float(temperature)
 
 
 def set_temperature(value: float) -> None:

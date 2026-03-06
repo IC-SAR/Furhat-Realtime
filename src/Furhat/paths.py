@@ -5,10 +5,16 @@ import sys
 from pathlib import Path
 
 
+def get_src_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return get_app_root()
+    return Path(__file__).resolve().parents[1]
+
+
 def get_app_root() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[3]
+    return Path(__file__).resolve().parents[2]
 
 
 def get_settings_path() -> Path:
@@ -20,7 +26,13 @@ def get_settings_path() -> Path:
             base = Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config")) / "furhat-realtime"
         base.mkdir(parents=True, exist_ok=True)
         return base / "settings.json"
-    return Path(__file__).resolve().parents[1] / "settings.json"
+    return get_src_root() / "settings.json"
+
+
+def get_legacy_settings_path() -> Path:
+    if getattr(sys, "frozen", False):
+        return get_settings_path()
+    return Path(__file__).resolve().parent / "settings.json"
 
 
 def get_data_root() -> Path:
@@ -32,7 +44,7 @@ def get_data_root() -> Path:
             base = Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "furhat-realtime"
         base.mkdir(parents=True, exist_ok=True)
         return base
-    return Path(__file__).resolve().parents[3] / "data"
+    return get_app_root() / "data"
 
 
 def get_asset_path(name: str) -> Path:

@@ -6,11 +6,11 @@ Tkinter UI to hold-to-listen and stream responses back to the robot.
 ## Requirements
 - Python 3.10+
 - Ollama running locally (`ollama serve`)
-- A Furhat robot reachable at the IP in `src/Furhat/settings.json`
+- A Furhat robot reachable at the IP in `src/settings.json`
 - Windows PowerShell (for the helper scripts)
 
 ## Quick start (recommended, cross-platform)
-1. Update the robot IP in `src/Furhat/settings.json`.
+1. Update the robot IP in `src/settings.json`.
 2. Install dependencies:
    ```bash
    python scripts/install.py
@@ -19,6 +19,12 @@ Tkinter UI to hold-to-listen and stream responses back to the robot.
    ```bash
    python scripts/run.py
    ```
+
+### Supported entrypoints
+- Source launcher: `python scripts/run.py`
+- Package module entrypoint: `python -m Furhat.main`
+
+Do not run internal source files directly, for example `python src/Furhat/main.py`.
 
 ## Build the Windows exe
 ```bash
@@ -48,7 +54,8 @@ If you prefer PowerShell wrappers:
   spoken back in short, cleaned-up chunks.
 
 ## Configuration
-- `src/Furhat/settings.json` stores IP, model, temperature, listen, and voice settings.
+- `src/settings.json` stores IP, model, temperature, listen, voice, and character settings.
+- `src/Furhat/settings.json` is still read as a legacy fallback if the canonical file is missing.
 - `src/Furhat/Ollama/config.py` sets the default model name.
 - `src/Furhat/version.py` controls app name/version used by the exe and installer.
 - Replace `assets/app.ico` to customize the app icon.
@@ -85,3 +92,21 @@ If you want a shared, manual index instead of per-character:
    python .\scripts\build_index.py
    ```
 3. Run the app as usual. If an index exists, the robot will use it.
+
+## Automated checks
+Run these before release or after significant refactors:
+
+```bash
+python scripts/smoke_source.py
+python -m unittest discover -s tests -v
+```
+
+## Validation Before Release
+Use this short manual checklist for the runtime paths that are not covered by automated tests:
+
+1. Start Ollama locally.
+2. Confirm the Furhat robot at the IP in `src/settings.json` is reachable.
+3. Launch the source app with `python scripts/run.py`.
+4. Launch the package entrypoint with `python -m Furhat.main`.
+5. Launch the packaged app from `dist/Furhat-Realtime.exe`.
+6. Verify character auto-load, RAG status, manual prompt send, listen/release flow, web control, reconnect, and voice settings.

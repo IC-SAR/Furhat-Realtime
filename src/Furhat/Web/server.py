@@ -8,12 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 from urllib.parse import urlparse
 
-try:
-    from ..Robot import robot
-    from .. import paths
-except ImportError:
-    from Robot import robot
-    import paths
+from ..Robot import robot
+from .. import paths
 
 
 DEFAULT_HOST = os.getenv("WEB_HOST", "0.0.0.0")
@@ -45,7 +41,6 @@ HTML = """<!doctype html>
       letter-spacing:0.2px;
     }
     button:active { background:#f59e0b; }
-    button:active { background:#f59e0b; }
     .status { margin-top:14px; color:#94a3b8; font-size:14px; }
     input { width:100%; padding:12px; margin-top:14px; border-radius:10px; border:0; }
     .field { margin-top:12px; background:#0b1220; padding:10px; border-radius:8px; font-size:14px; }
@@ -61,11 +56,11 @@ HTML = """<!doctype html>
     <div class="status" id="status">Idle</div>
     <div class="field">
       <div class="label">Heard</div>
-      <div id="heard">—</div>
+      <div id="heard">-</div>
     </div>
     <div class="field">
       <div class="label">Speaking</div>
-      <div id="spoken">—</div>
+      <div id="spoken">-</div>
     </div>
     <input id="text" placeholder="Type a prompt and press Enter..." />
   </div>
@@ -137,8 +132,8 @@ HTML = """<!doctype html>
         const res = await fetch('/api/status');
         if (!res.ok) return;
         const data = await res.json();
-        if (data.heard !== undefined) heardEl.textContent = data.heard || '—';
-        if (data.spoken !== undefined) spokenEl.textContent = data.spoken || '—';
+        if (data.heard !== undefined) heardEl.textContent = data.heard || '-';
+        if (data.spoken !== undefined) spokenEl.textContent = data.spoken || '-';
         const busy = !!(data.speech_session || data.speaking);
         hold.disabled = busy;
         if (busy) statusEl.textContent = 'Speaking...';
@@ -228,17 +223,16 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "robot is busy"}, status=409)
                 return
             payload = self._read_json()
-            text = str(payload.get("text", "")).strip()
-            if not text:
+            text_value = str(payload.get("text", "")).strip()
+            if not text_value:
                 self._send_json({"error": "text is required"}, status=400)
                 return
-            self._call_async(robot.speak_from_prompt(text))
+            self._call_async(robot.speak_from_prompt(text_value))
             self._send_json({"ok": True})
             return
         self._send_json({"error": "not found"}, status=404)
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
-        # Silence default HTTP logging.
         return
 
     def _call_async(self, coro: asyncio.Future) -> None:

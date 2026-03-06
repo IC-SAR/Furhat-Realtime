@@ -2,10 +2,13 @@
 import sys
 from pathlib import Path
 
-# Add src directory to path so PyInstaller can find the Furhat package
+# Add the repo root and src directory so PyInstaller can resolve both the
+# bundled entrypoint package and the source package.
 spec_root = Path(SPECPATH)
 src_path = str(spec_root / 'src')
+root_path = str(spec_root)
 sys.path.insert(0, src_path)
+sys.path.insert(0, root_path)
 
 app_info = {}
 version_file = spec_root / 'src' / 'Furhat' / 'version.py'
@@ -18,7 +21,7 @@ version_info_path = spec_root / 'packaging' / 'version_info.txt'
 
 a = Analysis(
     ['run.py'],
-    pathex=[src_path],
+    pathex=[root_path, src_path],
     binaries=[],
     datas=[
         (str(spec_root / 'assets' / 'app.ico'), 'assets'),
@@ -27,27 +30,6 @@ a = Analysis(
         # External packages
         'furhat_realtime_api',
         'ollama',
-        # Internal modules - Furhat package and all submodules
-        'Furhat',
-        'Furhat.Robot',
-        'Furhat.Robot.robot',
-        'Furhat.Robot.config',
-        'Furhat.UI',
-        'Furhat.UI.ui',
-        'Furhat.Ollama',
-        'Furhat.Ollama.chatbot',
-        'Furhat.Ollama.config',
-        'Furhat.Character',
-        'Furhat.Character.loader',
-        'Furhat.RAG',
-        'Furhat.RAG.builder',
-        'Furhat.RAG.config',
-        'Furhat.RAG.embeddings',
-        'Furhat.RAG.prompting',
-        'Furhat.RAG.retriever',
-        'Furhat.paths',
-        'Furhat.Web',
-        'Furhat.Web.server',
     ],
     hookspath=[],
     hooksconfig={},
