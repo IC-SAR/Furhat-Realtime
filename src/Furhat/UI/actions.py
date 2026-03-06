@@ -40,6 +40,12 @@ class UIActions:
         self.state.controls.manual_entry.bind("<Return>", lambda event: self.send_prompt())
         self.state.controls.send_button.configure(command=self.send_prompt)
         self.state.controls.clear_context_button.configure(command=self.clear_context)
+        if self.state.controls.stop_speech_button is not None:
+            self.state.controls.stop_speech_button.configure(command=self.stop_speech)
+        if self.state.controls.repeat_last_button is not None:
+            self.state.controls.repeat_last_button.configure(command=self.repeat_last_response)
+        if self.state.controls.replay_greeting_button is not None:
+            self.state.controls.replay_greeting_button.configure(command=self.replay_greeting)
         self.state.settings.apply_button.configure(command=self.apply_settings)
         self.state.settings.reconnect_button.configure(command=self.reconnect_robot)
         self.state.logs.clear_logs_button.configure(command=self.clear_logs)
@@ -88,6 +94,51 @@ class UIActions:
             asyncio.run_coroutine_threadsafe(coro, self.state.loop)
         else:
             threading.Thread(target=lambda: asyncio.run(coro), daemon=True).start()
+
+    def _run_feedback_coroutine(
+        self,
+        coro: asyncio.Future,
+        *,
+        success_message: str | None = None,
+        success_color: str = "#4ade80",
+        error_prefix: str,
+    ) -> None:
+        def _handle_success() -> None:
+            self.state.clear_status()
+            self.refresh_runtime_state()
+            self.refresh_transcript()
+            if success_message:
+                self.state.flash_status(success_message, success_color)
+
+        def _handle_error(exc: Exception) -> None:
+            self.state.clear_status()
+            self.refresh_runtime_state()
+            self.refresh_transcript()
+            self.state.flash_status(f"{error_prefix}: {exc}", "#fbbf24", duration_ms=5000)
+
+        if self.state.loop:
+            future = asyncio.run_coroutine_threadsafe(coro, self.state.loop)
+
+            def _done(done_future: object) -> None:
+                try:
+                    if hasattr(done_future, "result"):
+                        done_future.result()
+                except Exception as exc:
+                    self.state.root.after(0, lambda exc=exc: _handle_error(exc))
+                else:
+                    self.state.root.after(0, _handle_success)
+
+            future.add_done_callback(_done)
+        else:
+            def _runner() -> None:
+                try:
+                    asyncio.run(coro)
+                except Exception as exc:
+                    self.state.root.after(0, lambda exc=exc: _handle_error(exc))
+                else:
+                    self.state.root.after(0, _handle_success)
+
+            threading.Thread(target=_runner, daemon=True).start()
 
     def handle_robot_log(self, message: str) -> None:
         self.state.add_log(message)
@@ -252,19 +303,36 @@ class UIActions:
 
     def refresh_transcript(self) -> None:
         transcript = robot.get_transcript()
+        filter_value = "all"
+        if self.state.logs.transcript_filter_value is not None:
+            selected = self.state.logs.transcript_filter_value.get().strip().lower()
+            if selected in {"all", "web", "desktop"}:
+                filter_value = selected
+        if filter_value == "all":
+            filtered_rows = transcript
+        else:
+            filtered_rows = [
+                row for row in transcript if str(row.get("channel", "")).strip().lower() == filter_value
+            ]
+        counts = {"preset": 0, "manual": 0, "listen": 0}
         lines: list[str] = []
-        for row in transcript[-100:]:
+        for row in filtered_rows[-100:]:
             created_at = float(row.get("created_at", 0) or 0)
             timestamp = time.strftime("%H:%M:%S", time.localtime(created_at)) if created_at else "--:--:--"
             channel = str(row.get("channel", "") or "-")
             source = str(row.get("source", "") or "-")
             status = str(row.get("status", "") or "-")
+            if source in counts:
+                counts[source] += 1
             preview = str(row.get("input_text", "") or "").strip()
             if not preview:
                 preview = str(row.get("spoken_text", "") or "").strip()
             if len(preview) > 72:
                 preview = preview[:69].rstrip() + "..."
             lines.append(f"{timestamp} | {channel}/{source} | {status} | {preview or '-'}")
+        self.state.set_transcript_summary(
+            f"Showing {len(filtered_rows)} turns | preset {counts['preset']} | manual {counts['manual']} | listen {counts['listen']}"
+        )
         self.state.set_transcript_lines(lines)
 
     def refresh_rag_status(self) -> None:
@@ -415,17 +483,53 @@ class UIActions:
     def export_transcript(self) -> None:
         transcript = robot.get_transcript()
         try:
-            output_path = support.write_transcript_export(self.state.validation_dir, transcript)
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            output_path = support.write_transcript_export(
+                self.state.validation_dir,
+                transcript,
+                timestamp=timestamp,
+            )
+            summary = support.build_transcript_summary(transcript)
+            summary_path = support.write_transcript_summary(
+                self.state.validation_dir,
+                summary,
+                timestamp=timestamp,
+            )
         except Exception as exc:
             self.state.flash_status(f"transcript export error: {exc}", "#f87171", duration_ms=5000)
             return
         self.state.add_log(f"transcript exported: {output_path.name}")
+        self.state.add_log(f"transcript summary exported: {summary_path.name}")
         self.state.flash_status("transcript exported", "#4ade80")
 
     def clear_transcript(self) -> None:
         robot.clear_transcript()
         self.refresh_transcript()
         self.state.flash_status("transcript cleared", "#4ade80")
+
+    def stop_speech(self) -> None:
+        self.state.set_status("stopping speech...", "#fbbf24")
+        self._run_feedback_coroutine(
+            robot.stop_current_output(),
+            success_message="speech stopped",
+            error_prefix="stop speech",
+        )
+
+    def repeat_last_response(self) -> None:
+        self.state.set_status("replaying last response...", "#38bdf8")
+        self._run_feedback_coroutine(
+            robot.repeat_last_response(),
+            success_message="replaying last response",
+            error_prefix="repeat last",
+        )
+
+    def replay_greeting(self) -> None:
+        self.state.set_status("replaying greeting...", "#38bdf8")
+        self._run_feedback_coroutine(
+            robot.speak_greeting(),
+            success_message="replaying greeting",
+            error_prefix="replay greeting",
+        )
 
     def open_validation_folder(self) -> None:
         try:

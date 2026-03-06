@@ -67,6 +67,10 @@ class RobotRuntime:
         self.next_turn_id = 1
         self.pending_listen_channel = "desktop"
         self.pending_listen_source = "listen"
+        self.session_counter = 0
+        self.active_session_id: int | None = None
+        self.cancelled_session_ids: set[int] = set()
+        self.last_completed_response = ""
         self._init_client(robot_config.IP)
 
     def _init_client(self, ip_address: str) -> None:
@@ -222,6 +226,24 @@ class RobotRuntime:
         )
         turn.status = "empty"
         self._append_transcript_turn(turn)
+
+    def _next_session_id(self) -> int:
+        self.session_counter += 1
+        return self.session_counter
+
+    def _cancel_session(self, session_id: int | None) -> None:
+        if session_id is None:
+            return
+        self.cancelled_session_ids.add(session_id)
+
+    def _is_session_cancelled(self, session_id: int) -> bool:
+        return session_id in self.cancelled_session_ids
+
+    async def _speak_direct_output(self, text_value: str, *, abort: bool = True) -> None:
+        if self.runtime_status.listening or self.runtime_status.speech_session or self.runtime_status.speaking:
+            raise RuntimeError("robot is busy")
+        self.runtime_status.spoken = text_value
+        await self._speak_text_safe(text_value, wait=True, abort=abort, timeout=SPEAK_WAIT_TIMEOUT)
 
     async def _attend_closest_user(self) -> None:
         try:
@@ -569,6 +591,28 @@ class RobotRuntime:
         if speak_greeting and character.opening_line:
             await self._speak_text_safe(character.opening_line, wait=True, abort=True, timeout=10)
 
+    async def stop_current_output(self) -> None:
+        if self.active_session_id is None and not self.runtime_status.speaking:
+            raise RuntimeError("nothing is playing")
+        self._cancel_session(self.active_session_id)
+        if hasattr(self.furhat, "request_speak_stop"):
+            await self.furhat.request_speak_stop()
+        self.runtime_status.speaking = False
+        self._notify("speech stopped")
+
+    async def repeat_last_response(self) -> None:
+        if not self.last_completed_response:
+            raise RuntimeError("no previous response")
+        await self._speak_direct_output(self.last_completed_response)
+        self._notify("replayed last response")
+
+    async def speak_greeting(self) -> None:
+        greeting = self.character_info.opening_line.strip()
+        if not greeting:
+            raise RuntimeError("no greeting available")
+        await self._speak_direct_output(greeting)
+        self._notify("replayed greeting")
+
     async def speak_from_prompt(
         self,
         prompt: str,
@@ -579,6 +623,8 @@ class RobotRuntime:
     ) -> None:
         self.runtime_status.prompt = prompt
         self.runtime_status.speech_session = True
+        session_id = self._next_session_id()
+        self.active_session_id = session_id
         turn = self._new_transcript_turn(
             channel=channel,
             source=source,
@@ -599,7 +645,7 @@ class RobotRuntime:
 
                 async def _maybe_think() -> None:
                     await asyncio.sleep(max(0.0, THINKING_DELAY_SEC))
-                    if not response_ready.is_set():
+                    if not response_ready.is_set() and not self._is_session_cancelled(session_id):
                         await self._speak_text_safe(
                             random.choice(THINKING_PHRASES),
                             wait=True,
@@ -621,6 +667,11 @@ class RobotRuntime:
             except Exception as exc:
                 logger.warning("RAG retrieval failed: %s", exc)
                 context = ""
+
+            if self._is_session_cancelled(session_id):
+                turn.status = "cancelled"
+                turn.error = "stopped"
+                return
 
             rag_prompt = prompting.build_prompt(prompt, context)
 
@@ -649,20 +700,37 @@ class RobotRuntime:
                     except asyncio.CancelledError:
                         pass
 
+            if self._is_session_cancelled(session_id):
+                turn.status = "cancelled"
+                turn.error = "stopped"
+                return
+
             if say_text:
                 say_text = text.shorten_for_speech(say_text)
                 say_text = text.sanitize_for_speech(say_text)
+            if self._is_session_cancelled(session_id):
+                turn.status = "cancelled"
+                turn.error = "stopped"
+                return
             if say_text:
                 self.runtime_status.spoken = say_text
                 turn.spoken_text = say_text
-                turn.status = "completed"
                 await self._speak_text_safe(say_text, wait=True, timeout=SPEAK_WAIT_TIMEOUT)
+                if self._is_session_cancelled(session_id):
+                    turn.status = "cancelled"
+                    turn.error = "stopped"
+                else:
+                    turn.status = "completed"
+                    self.last_completed_response = say_text
             elif error_text:
                 turn.status = "error"
                 turn.error = error_text
             else:
                 turn.status = "empty"
         finally:
+            if self.active_session_id == session_id:
+                self.active_session_id = None
+            self.cancelled_session_ids.discard(session_id)
             self._append_transcript_turn(turn)
             self.runtime_status.speech_session = False
             try:

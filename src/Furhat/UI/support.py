@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 
+def _export_timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
 def build_web_urls(port: int, local_ip: str) -> dict[str, str]:
     loopback = f"http://127.0.0.1:{int(port)}"
     ip_value = str(local_ip).strip()
@@ -45,20 +49,56 @@ def build_diagnostics_snapshot(
 
 def write_diagnostics_snapshot(output_dir: Path, snapshot: Mapping[str, object]) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = _export_timestamp()
     output_path = output_dir / f"ui-session-{timestamp}.json"
     output_path.write_text(json.dumps(dict(snapshot), indent=2), encoding="utf-8")
     return output_path
 
 
+def build_transcript_summary(
+    transcript_rows: Iterable[Mapping[str, object]],
+) -> dict[str, object]:
+    rows = [dict(row) for row in transcript_rows]
+    by_channel: dict[str, int] = {}
+    by_source = {"preset": 0, "manual": 0, "listen": 0}
+    for row in rows:
+        channel = str(row.get("channel", "") or "")
+        source = str(row.get("source", "") or "")
+        if channel:
+            by_channel[channel] = by_channel.get(channel, 0) + 1
+        if source in by_source:
+            by_source[source] += 1
+    return {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "total_turns": len(rows),
+        "by_channel": by_channel,
+        "by_source": by_source,
+    }
+
+
 def write_transcript_export(
     output_dir: Path,
     transcript_rows: Iterable[Mapping[str, object]],
+    *,
+    timestamp: str | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = timestamp or _export_timestamp()
     output_path = output_dir / f"transcript-{timestamp}.jsonl"
     with output_path.open("w", encoding="utf-8") as handle:
         for row in transcript_rows:
             handle.write(json.dumps(dict(row), ensure_ascii=True) + "\n")
+    return output_path
+
+
+def write_transcript_summary(
+    output_dir: Path,
+    summary: Mapping[str, object],
+    *,
+    timestamp: str | None = None,
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = timestamp or _export_timestamp()
+    output_path = output_dir / f"transcript-summary-{timestamp}.json"
+    output_path.write_text(json.dumps(dict(summary), indent=2), encoding="utf-8")
     return output_path

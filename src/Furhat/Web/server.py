@@ -324,7 +324,7 @@ HTML = """<!doctype html>
     <section class="hero">
       <div class="eyebrow">Live Booth Experience</div>
       <h1 id="title">Ask Furhat</h1>
-      <p class="subtitle">Tap a suggested question, type your own, or hold the button to talk.</p>
+      <p class="subtitle">Tap a suggested question, type your own, or hold to talk.</p>
       <div class="status" id="status">
         <span class="status-dot" id="statusDot"></span>
         <span id="statusText">Loading...</span>
@@ -384,6 +384,8 @@ HTML = """<!doctype html>
     let currentConfig = { presets: [], max_text_chars: 200, cooldown_seconds: 2, character_name: '' };
     let currentStatus = null;
     let publicListenActive = false;
+    let lastHeardValue = '';
+    let lastHeardChangedAt = 0;
 
     function escapeHtml(value) {
       return String(value || '')
@@ -434,7 +436,7 @@ HTML = """<!doctype html>
             await requestJson('/api/public/preset', 'POST', { preset_id: presetId });
             await refreshStatus();
           } catch (error) {
-            statusTextEl.textContent = error.message || 'Preset failed';
+            showFriendlyError(error);
           }
         });
       }
@@ -456,26 +458,79 @@ HTML = """<!doctype html>
       holdButtonEl.classList.toggle('active', publicListenActive);
     }
 
+    function applyFriendlyHint(data) {
+      const reason = String(data.input_enabled_reason || '');
+      if (reason === 'cooldown') {
+        const seconds = (Number(data.cooldown_remaining_ms || 0) / 1000).toFixed(1);
+        cooldownHintEl.textContent = `Please wait ${seconds}s before starting another request.`;
+        return;
+      }
+      if (reason === 'offline') {
+        cooldownHintEl.textContent = 'Furhat is offline right now.';
+        return;
+      }
+      if (reason === 'listening') {
+        cooldownHintEl.textContent = 'Listening now. Release to hear the response.';
+        return;
+      }
+      if (reason === 'thinking') {
+        cooldownHintEl.textContent = 'Thinking about the answer.';
+        return;
+      }
+      if (reason === 'speaking') {
+        cooldownHintEl.textContent = 'Speaking now. Please wait for the next turn.';
+        return;
+      }
+      cooldownHintEl.textContent = 'Responses are briefly rate-limited to keep the booth experience smooth.';
+    }
+
+    function showFriendlyError(error) {
+      const statusCode = Number(error && error.status || 0);
+      if (statusCode === 429) {
+        statusTextEl.textContent = 'Cooling down';
+        cooldownHintEl.textContent = 'Please wait a moment before asking again.';
+        return;
+      }
+      if (statusCode === 409) {
+        const offline = !!(currentStatus && !currentStatus.connected);
+        statusTextEl.textContent = offline ? 'Offline' : 'Please wait';
+        cooldownHintEl.textContent = offline
+          ? 'Furhat is offline right now.'
+          : 'Furhat is busy with the current interaction.';
+        return;
+      }
+      if (statusCode === 400) {
+        statusTextEl.textContent = 'Try again';
+        cooldownHintEl.textContent = 'Please enter a short question and try again.';
+        return;
+      }
+      statusTextEl.textContent = 'Please try again';
+      cooldownHintEl.textContent = 'The booth is temporarily unavailable.';
+    }
+
     function applyStatus(data) {
       currentStatus = data;
       const connected = !!data.connected;
       const statusText = data.status_text || 'Ready';
       statusTextEl.textContent = statusText;
-      statusDotEl.style.background = connected ? 'var(--ready)' : 'var(--danger)';
-      statusDotEl.style.boxShadow = connected
-        ? '0 0 0 6px rgba(74, 222, 128, 0.12)'
-        : '0 0 0 6px rgba(248, 113, 113, 0.14)';
+      const inputDisabled = !!String(data.input_enabled_reason || '');
+      statusDotEl.style.background = !connected ? 'var(--danger)' : inputDisabled ? 'var(--accent)' : 'var(--ready)';
+      statusDotEl.style.boxShadow = !connected
+        ? '0 0 0 6px rgba(248, 113, 113, 0.14)'
+        : inputDisabled
+          ? '0 0 0 6px rgba(246, 182, 60, 0.12)'
+          : '0 0 0 6px rgba(74, 222, 128, 0.12)';
 
-      heardValueEl.textContent = data.heard || '-';
+      const heardValue = String(data.heard || '');
+      if (heardValue !== lastHeardValue) {
+        lastHeardValue = heardValue;
+        lastHeardChangedAt = heardValue ? Date.now() : 0;
+      }
+      const heardExpired = !!(heardValue && lastHeardChangedAt && (Date.now() - lastHeardChangedAt) >= 10000);
+      heardValueEl.textContent = heardValue && !heardExpired ? heardValue : '-';
       spokenValueEl.textContent = data.spoken || '-';
       titleEl.textContent = data.character_name ? `Ask ${data.character_name}` : 'Ask Furhat';
-
-      if (data.cooldown_remaining_ms > 0) {
-        const seconds = (data.cooldown_remaining_ms / 1000).toFixed(1);
-        cooldownHintEl.textContent = `Please wait ${seconds}s before starting another request.`;
-      } else {
-        cooldownHintEl.textContent = 'Responses are briefly rate-limited to keep the booth experience smooth.';
-      }
+      applyFriendlyHint(data);
 
       if (!data.listening) {
         publicListenActive = false;
@@ -517,7 +572,7 @@ HTML = """<!doctype html>
         await requestJson('/api/public/speak', 'POST', { text: value });
         await refreshStatus();
       } catch (error) {
-        statusTextEl.textContent = error.message || 'Prompt failed';
+        showFriendlyError(error);
       }
     }
 
@@ -526,10 +581,10 @@ HTML = """<!doctype html>
       try {
         await requestJson('/api/public/listen/start', 'POST', {});
         publicListenActive = true;
-        statusTextEl.textContent = 'Listening...';
+        statusTextEl.textContent = 'Listening';
         updateInteractivity();
       } catch (error) {
-        statusTextEl.textContent = error.message || 'Listen failed';
+        showFriendlyError(error);
       }
     }
 
@@ -538,11 +593,11 @@ HTML = """<!doctype html>
       try {
         await requestJson('/api/public/listen/stop', 'POST', {});
         publicListenActive = false;
-        statusTextEl.textContent = 'Thinking...';
+        statusTextEl.textContent = 'Thinking';
         updateInteractivity();
         setTimeout(() => { refreshStatus(); }, 250);
       } catch (error) {
-        statusTextEl.textContent = error.message || 'Stop failed';
+        showFriendlyError(error);
       }
     }
 
@@ -629,20 +684,36 @@ def _get_public_status_payload() -> dict[str, object]:
     character_name = str(character_info.get("name", "")).strip()
 
     if not connected:
-        status_text = "Unavailable"
+        busy_reason = "offline"
+        input_enabled_reason = "offline"
+        status_text = "Offline"
     elif listening:
-        status_text = "Listening..."
-    elif speaking or speech_session:
-        status_text = "Responding..."
+        busy_reason = "listening"
+        input_enabled_reason = "listening"
+        status_text = "Listening"
+    elif speaking:
+        busy_reason = "speaking"
+        input_enabled_reason = "speaking"
+        status_text = "Speaking"
+    elif speech_session:
+        busy_reason = "thinking"
+        input_enabled_reason = "thinking"
+        status_text = "Thinking"
     elif cooldown_remaining_ms > 0:
-        status_text = "Please wait..."
+        busy_reason = "cooldown"
+        input_enabled_reason = "cooldown"
+        status_text = "Cooling down"
     else:
+        busy_reason = ""
+        input_enabled_reason = ""
         status_text = "Ready"
 
     return {
         "connected": connected,
         "accepting_input": accepting_input,
         "busy": busy,
+        "busy_reason": busy_reason,
+        "input_enabled_reason": input_enabled_reason,
         "listening": listening,
         "speaking": speaking,
         "cooldown_remaining_ms": cooldown_remaining_ms,

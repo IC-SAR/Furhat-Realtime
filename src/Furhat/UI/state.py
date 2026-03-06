@@ -17,6 +17,9 @@ class ControlsView:
     send_button: tk.Button
     clear_context_button: tk.Button
     listen_button: tk.Button
+    stop_speech_button: tk.Button | None = None
+    repeat_last_button: tk.Button | None = None
+    replay_greeting_button: tk.Button | None = None
 
 
 @dataclass(slots=True)
@@ -83,6 +86,9 @@ class LogsView:
     transcript_text: tk.Text | None = None
     export_transcript_button: tk.Button | None = None
     clear_transcript_button: tk.Button | None = None
+    transcript_filter_value: tk.StringVar | None = None
+    transcript_filter_menu: tk.OptionMenu | None = None
+    transcript_summary_var: tk.StringVar | None = None
 
 
 @dataclass(slots=True)
@@ -228,6 +234,11 @@ class UIState:
             self.logs.transcript_text.insert("end", "\n".join(lines))
             self.logs.transcript_text.see("end")
         self.logs.transcript_text.configure(state="disabled")
+
+    def set_transcript_summary(self, text: str) -> None:
+        if self.logs.transcript_summary_var is None:
+            return
+        self.logs.transcript_summary_var.set(text)
 
     def set_listen_button_enabled(self, enabled: bool) -> None:
         self.listen_button_enabled = bool(enabled)

@@ -56,6 +56,42 @@ def build_controls_view(parent: tk.Frame) -> ControlsView:
         padx=8,
         pady=2,
     )
+    stop_speech_button = tk.Button(
+        frame,
+        text="Stop speech",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#f87171",
+        activebackground="#ef4444",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=8,
+        pady=2,
+    )
+    repeat_last_button = tk.Button(
+        frame,
+        text="Repeat last",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#38bdf8",
+        activebackground="#0ea5e9",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=8,
+        pady=2,
+    )
+    replay_greeting_button = tk.Button(
+        frame,
+        text="Replay greeting",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#94a3b8",
+        activebackground="#64748b",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=8,
+        pady=2,
+    )
     listen_button = tk.Button(
         frame,
         text="Hold to Listen (Space)",
@@ -74,7 +110,10 @@ def build_controls_view(parent: tk.Frame) -> ControlsView:
     manual_entry.grid(row=2, column=0, sticky="w", pady=(2, 6))
     send_button.grid(row=2, column=1, sticky="w", padx=(8, 0))
     clear_context_button.grid(row=3, column=0, sticky="w", pady=(0, 8))
-    listen_button.grid(row=4, column=0, columnspan=2, pady=(6, 0))
+    stop_speech_button.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=(0, 8))
+    repeat_last_button.grid(row=4, column=0, sticky="w", pady=(0, 8))
+    replay_greeting_button.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=(0, 8))
+    listen_button.grid(row=5, column=0, columnspan=2, pady=(6, 0))
 
     return ControlsView(
         frame=frame,
@@ -84,4 +123,7 @@ def build_controls_view(parent: tk.Frame) -> ControlsView:
         send_button=send_button,
         clear_context_button=clear_context_button,
         listen_button=listen_button,
+        stop_speech_button=stop_speech_button,
+        repeat_last_button=repeat_last_button,
+        replay_greeting_button=replay_greeting_button,
     )

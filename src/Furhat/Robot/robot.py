@@ -33,6 +33,18 @@ def clear_transcript() -> None:
     runtime.clear_transcript()
 
 
+async def stop_current_output() -> None:
+    await runtime.stop_current_output()
+
+
+async def repeat_last_response() -> None:
+    await runtime.repeat_last_response()
+
+
+async def speak_greeting() -> None:
+    await runtime.speak_greeting()
+
+
 async def setup() -> None:
     await runtime.setup()
 

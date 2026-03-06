@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -256,6 +258,73 @@ class RobotRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.clear_transcript()
 
         self.assertEqual(self.runtime.get_transcript(), [])
+
+    async def test_stop_current_output_requests_speak_stop_when_speaking(self) -> None:
+        self.runtime.runtime_status.speaking = True
+        self.runtime.active_session_id = 7
+
+        await self.runtime.stop_current_output()
+
+        self.assertFalse(self.runtime.runtime_status.speaking)
+        self.assertEqual(len(self.fake_client.calls_named("request_speak_stop")), 1)
+
+    async def test_stop_current_output_suppresses_late_model_response(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_response(prompt: str) -> str:
+            started.set()
+            release.wait(timeout=2)
+            return "late reply"
+
+        with (
+            mock.patch.object(runtime_module, "SPEAK_THINKING", False),
+            mock.patch.object(runtime_module.retriever, "retrieve_context", return_value=""),
+            mock.patch.object(runtime_module.prompting, "build_prompt", return_value="prompt"),
+            mock.patch.object(runtime_module.Ollama, "get_full_response", side_effect=slow_response),
+            mock.patch.object(runtime_module.text, "shorten_for_speech", side_effect=lambda value: value),
+            mock.patch.object(runtime_module.text, "sanitize_for_speech", side_effect=lambda value: value),
+        ):
+            task = asyncio.create_task(self.runtime.speak_from_prompt("hello there"))
+            await asyncio.to_thread(started.wait, 1)
+            await self.runtime.stop_current_output()
+            release.set()
+            await task
+
+        speak_calls = [
+            call for call in self.fake_client.calls_named("request_speak_text") if call["text"] == "late reply"
+        ]
+        self.assertEqual(speak_calls, [])
+        transcript = self.runtime.get_transcript()
+        self.assertEqual(transcript[-1]["status"], "cancelled")
+
+    async def test_repeat_last_response_replays_last_completed_text(self) -> None:
+        with (
+            mock.patch.object(runtime_module, "SPEAK_THINKING", False),
+            mock.patch.object(runtime_module.retriever, "retrieve_context", return_value=""),
+            mock.patch.object(runtime_module.prompting, "build_prompt", return_value="prompt"),
+            mock.patch.object(runtime_module.Ollama, "get_full_response", return_value="first reply"),
+            mock.patch.object(runtime_module.text, "shorten_for_speech", side_effect=lambda value: value),
+            mock.patch.object(runtime_module.text, "sanitize_for_speech", side_effect=lambda value: value),
+        ):
+            await self.runtime.speak_from_prompt("hello there")
+
+        await self.runtime.repeat_last_response()
+
+        speak_calls = self.fake_client.calls_named("request_speak_text")
+        self.assertEqual(speak_calls[-1]["text"], "first reply")
+
+    async def test_repeat_last_response_requires_previous_completed_response(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "no previous response"):
+            await self.runtime.repeat_last_response()
+
+    async def test_speak_greeting_uses_active_character_opening_line(self) -> None:
+        self.runtime.character_info.opening_line = "Hello there"
+
+        await self.runtime.speak_greeting()
+
+        speak_calls = self.fake_client.calls_named("request_speak_text")
+        self.assertEqual(speak_calls[-1]["text"], "Hello there")
 
 
 if __name__ == "__main__":

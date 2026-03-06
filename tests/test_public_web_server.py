@@ -163,6 +163,9 @@ class PublicWebServerTests(unittest.TestCase):
         self.assertTrue(data["accepting_input"])
         self.assertFalse(data["busy"])
         self.assertEqual(data["character_name"], "Pepper")
+        self.assertEqual(data["status_text"], "Ready")
+        self.assertEqual(data["busy_reason"], "")
+        self.assertEqual(data["input_enabled_reason"], "")
 
     def test_public_preset_dispatches_web_preset_prompt(self) -> None:
         status, data = self._request("POST", "/api/public/preset", {"preset_id": "intro"})
@@ -196,6 +199,12 @@ class PublicWebServerTests(unittest.TestCase):
         self.assertEqual(status_cooldown, 429)
         self.assertEqual(data_cooldown, {"error": "cooldown active"})
 
+        status_state, data_state = self._request("GET", "/api/public/status")
+        self.assertEqual(status_state, 200)
+        self.assertEqual(data_state["status_text"], "Cooling down")
+        self.assertEqual(data_state["busy_reason"], "cooldown")
+        self.assertEqual(data_state["input_enabled_reason"], "cooldown")
+
     def test_public_endpoints_return_busy_when_runtime_is_busy(self) -> None:
         self.fake_robot.status["speech_session"] = True
 
@@ -209,6 +218,23 @@ class PublicWebServerTests(unittest.TestCase):
         self.assertEqual(data_preset, {"error": "robot is busy"})
         self.assertEqual(status_listen, 409)
         self.assertEqual(data_listen, {"error": "robot is busy"})
+
+        status_state, data_state = self._request("GET", "/api/public/status")
+        self.assertEqual(status_state, 200)
+        self.assertEqual(data_state["status_text"], "Thinking")
+        self.assertEqual(data_state["busy_reason"], "thinking")
+        self.assertEqual(data_state["input_enabled_reason"], "thinking")
+
+    def test_public_status_reports_offline_reason(self) -> None:
+        self.fake_robot.status["connected"] = False
+
+        status, data = self._request("GET", "/api/public/status")
+
+        self.assertEqual(status, 200)
+        self.assertFalse(data["accepting_input"])
+        self.assertEqual(data["status_text"], "Offline")
+        self.assertEqual(data["busy_reason"], "offline")
+        self.assertEqual(data["input_enabled_reason"], "offline")
 
     def test_public_listen_start_and_stop_use_web_channel(self) -> None:
         status_start, data_start = self._request("POST", "/api/public/listen/start", {})
