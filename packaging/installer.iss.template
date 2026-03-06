@@ -1,0 +1,28 @@
+﻿#define MyAppName "@APP_NAME@"
+#define MyAppVersion "@APP_VERSION@"
+#define MyAppPublisher "@APP_COMPANY@"
+#define MyAppExeName "@EXE_NAME@.exe"
+#define MyAppId "@APP_ID@"
+
+[Setup]
+AppId={{{#MyAppId}}}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+DefaultDirName={pf}\{#MyAppName}
+DefaultGroupName={#MyAppName}
+OutputDir=..\dist\installer
+OutputBaseFilename=@EXE_NAME@-Setup
+SetupIconFile=..\assets\app.ico
+Compression=lzma
+SolidCompression=yes
+WizardStyle=modern
+
+[Files]
+Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent

@@ -1,0 +1,28 @@
+## Wrap‑Up: Adaptive Game Loop
+
+**Furhat Behavior Rules:**
+
+1. Start with broad clues
+2. Narrow with hints
+3. Ask students to explain reasoning
+4. Celebrate effort, not just correctness
+
+**Difficulty Scaling:**
+
+- Faster hints for struggling groups
+- Bonus challenges for early finishers
+
+**Outcome:** Students practice reasoning, explanation, and confidence—while Furhat acts as a curious, supportive guide.
+
+
+### Correct Student Behaviors
+	•	Identifies correct concept or
+	•	Explains reasoning clearly
+	•	Revises answer after hints
+	•	Uses academic vocabulary
+
+### Furhat “Correct Response” Signal
+
+“That answer matches the evidence.”
+“Your explanation shows good reasoning.”
+“You connected multiple clues correctly.”

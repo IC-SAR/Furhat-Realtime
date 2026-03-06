@@ -1,0 +1,7 @@
+{
+  "data_dir": "C:\\Users\\sjfdo\\Documents\\Projects\\Furhat-Realtime\\data",
+  "entries": 15,
+  "model": "nomic-embed-text",
+  "chunk_size": 900,
+  "chunk_overlap": 180
+}
