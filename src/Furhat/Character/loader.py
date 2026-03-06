@@ -109,6 +109,8 @@ SHORT_NAV_RUN_MIN = 4
 class CharacterData:
     char_id: str
     name: str
+    agent_name: str
+    description: str
     opening_line: str
     voice_id: str
     face_id: str
@@ -514,6 +516,8 @@ def load_character(path: Path) -> CharacterData:
     data = json.loads(path.read_text(encoding="utf-8"))
     char_id = str(data.get("id") or _slugify(data.get("name", path.stem)))
     name = str(data.get("name", path.stem))
+    agent_name = str(data.get("agentName", "")).strip()
+    description = str(data.get("description", "")).strip()
     opening_line = str(data.get("openingLine", "")).strip()
     voice_id = str(data.get("voiceId", "")).strip()
     face_id = str(data.get("faceId", "")).strip()
@@ -521,6 +525,8 @@ def load_character(path: Path) -> CharacterData:
     return CharacterData(
         char_id=char_id,
         name=name,
+        agent_name=agent_name,
+        description=description,
         opening_line=opening_line,
         voice_id=voice_id,
         face_id=face_id,

@@ -152,6 +152,8 @@ class RobotRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     {
                         "id": "test-character",
                         "name": "Test Character",
+                        "agentName": "Stormy",
+                        "description": "Answers district hiring questions.",
                         "openingLine": "Hello there",
                         "voiceId": "char-voice",
                         "faceId": "face",
@@ -162,25 +164,85 @@ class RobotRuntimeTests(unittest.IsolatedAsyncioTestCase):
             )
             self.runtime.set_voice_settings("default-voice", 1.1, 0.9)
 
-            with mock.patch.object(
-                runtime_module.character_loader,
-                "prepare_character_rag",
-                new=mock.AsyncMock(),
-            ) as prepare_character_rag:
+            with (
+                mock.patch.object(
+                    runtime_module.character_loader,
+                    "prepare_character_rag",
+                    new=mock.AsyncMock(),
+                ) as prepare_character_rag,
+                mock.patch.object(runtime_module.Ollama, "set_system_prompt") as set_system_prompt,
+                mock.patch.object(runtime_module.Ollama, "clear_messages") as clear_messages,
+            ):
                 await self.runtime.apply_character_file(str(character_path), force_rag=True)
 
         self.assertEqual(self.runtime.character_info.name, "Test Character")
+        self.assertEqual(self.runtime.character_info.agent_name, "Stormy")
+        self.assertEqual(self.runtime.character_info.description, "Answers district hiring questions.")
         self.assertEqual(self.runtime.character_info.voice_id, "char-voice")
         prepare_character_rag.assert_awaited_once()
         args, kwargs = prepare_character_rag.await_args
         self.assertEqual(args, (character_path,))
         self.assertTrue(callable(kwargs["notify"]))
         self.assertTrue(kwargs["force"])
+        set_system_prompt.assert_called_once()
+        clear_messages.assert_called_once()
+        self.assertIn("Stormy", set_system_prompt.call_args.args[0])
         voice_calls = self.fake_client.calls_named("request_set_voice")
         self.assertEqual(voice_calls[-1]["voice"], "char-voice")
         parameter_calls = self.fake_client.calls_named("request_set_voice_parameters")
         self.assertEqual(parameter_calls[-1]["rate"], 1.1)
         self.assertEqual(parameter_calls[-1]["volume"], 0.9)
+
+    async def test_load_startup_character_applies_composed_prompt_and_clears_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            character_path = Path(temp_dir) / "character.json"
+            character_path.write_text(
+                json.dumps(
+                    {
+                        "id": "stormy-character",
+                        "name": "SVVSD HR Consultant",
+                        "agentName": "Stormy",
+                        "description": "Answers questions about district hiring and benefits.",
+                        "openingLine": "Hello there",
+                        "voiceId": "char-voice",
+                        "faceId": "face",
+                        "externalLinks": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(
+                    runtime_module.character_loader,
+                    "resolve_startup_character",
+                    return_value=character_path,
+                ),
+                mock.patch.object(
+                    runtime_module.character_loader,
+                    "prepare_character_rag",
+                    new=mock.AsyncMock(),
+                ) as prepare_character_rag,
+                mock.patch.object(
+                    runtime_module.asyncio,
+                    "create_task",
+                    side_effect=lambda coro: (coro.close(), mock.Mock())[1],
+                ) as create_task,
+                mock.patch.object(runtime_module.Ollama, "set_system_prompt") as set_system_prompt,
+                mock.patch.object(runtime_module.Ollama, "clear_messages") as clear_messages,
+            ):
+                self.runtime.load_startup_character(runtime_module.settings_store.AppSettings())
+
+        self.assertEqual(self.runtime.character_info.agent_name, "Stormy")
+        self.assertEqual(
+            self.runtime.character_info.description,
+            "Answers questions about district hiring and benefits.",
+        )
+        set_system_prompt.assert_called_once()
+        clear_messages.assert_called_once()
+        self.assertIn("Stormy", set_system_prompt.call_args.args[0])
+        create_task.assert_called_once()
+        prepare_character_rag.assert_called_once()
 
     async def test_connect_once_registers_handlers_applies_voice_and_marks_connected(self) -> None:
         self.runtime.set_voice_settings("default-voice", 1.0, 1.0)

@@ -149,6 +149,8 @@ class RobotRuntime:
             character_path = None
 
         if not character_path:
+            self.character_info = CharacterInfo()
+            self._apply_character_prompt()
             return
 
         self._notify(f"character loaded: {character_path.name}")
@@ -158,14 +160,19 @@ class RobotRuntime:
                 char_id=character.char_id,
                 path=str(character_path),
                 name=character.name,
+                agent_name=character.agent_name,
+                description=character.description,
                 voice_id=character.voice_id,
                 opening_line=character.opening_line,
             )
+            self._apply_character_prompt()
             asyncio.create_task(
                 character_loader.prepare_character_rag(character_path, notify=self._notify)
             )
         except Exception as exc:
             logger.warning("Failed to start character RAG task: %s", exc)
+            self.character_info = CharacterInfo()
+            self._apply_character_prompt()
 
     def get_character_info(self) -> dict[str, str]:
         return self.character_info.to_dict()
@@ -433,7 +440,6 @@ class RobotRuntime:
 
     async def setup(self) -> None:
         settings = self.load_runtime_settings()
-        Ollama.set_system_prompt(prompts.SYSTEM_PROMPT)
         self.load_startup_character(settings)
         await self.connect_until_ready()
 
@@ -563,9 +569,12 @@ class RobotRuntime:
             char_id=character.char_id,
             path=str(character_file),
             name=character.name,
+            agent_name=character.agent_name,
+            description=character.description,
             voice_id=character.voice_id,
             opening_line=character.opening_line,
         )
+        self._apply_character_prompt()
         self._notify(f"character loaded: {character_file.name}")
 
         try:
@@ -768,6 +777,10 @@ class RobotRuntime:
         self.furhat.add_handler(Events.response_speak_start, self.on_speak_start)
         self.furhat.add_handler(Events.response_speak_end, self.on_speak_end)
         self.handlers_registered = True
+
+    def _apply_character_prompt(self) -> None:
+        Ollama.set_system_prompt(prompts.build_system_prompt(self.character_info))
+        Ollama.clear_messages()
 
 
 runtime = RobotRuntime()

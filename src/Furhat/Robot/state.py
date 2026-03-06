@@ -8,6 +8,8 @@ class CharacterInfo:
     char_id: str = ""
     path: str = ""
     name: str = ""
+    agent_name: str = ""
+    description: str = ""
     voice_id: str = ""
     opening_line: str = ""
 
@@ -16,6 +18,8 @@ class CharacterInfo:
             "char_id": self.char_id,
             "path": self.path,
             "name": self.name,
+            "agent_name": self.agent_name,
+            "description": self.description,
             "voice_id": self.voice_id,
             "opening_line": self.opening_line,
         }

@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import os
 import struct
 import subprocess
 import sys
@@ -108,11 +109,56 @@ def _write_version_info(app: dict[str, str]) -> None:
     VERSION_OUT.write_text(content, encoding="utf-8")
 
 
+def _ensure_output_unlocked(path: Path, app_name: str) -> None:
+    if os.name != "nt" or not path.exists():
+        return
+    escaped = str(path.resolve()).replace("'", "''")
+    result = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            (
+                f"$target = '{escaped}'; "
+                "Get-Process | "
+                "Where-Object { $_.Path -eq $target } | "
+                "Select-Object -ExpandProperty Id"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    pids = [line.strip() for line in result.stdout.splitlines() if line.strip().isdigit()]
+    if pids:
+        pid_text = ", ".join(pids)
+        raise RuntimeError(
+            f"{path.name} is currently running (PID: {pid_text}). "
+            f"Close any running '{app_name}' windows and retry the build."
+        )
+    probe = path.with_name(path.name + ".buildcheck")
+    try:
+        path.replace(probe)
+        probe.replace(path)
+    except PermissionError as exc:
+        raise RuntimeError(
+            f"{path.name} is in use. Close any running '{app_name}' windows and retry the build."
+        ) from exc
+    finally:
+        if probe.exists() and not path.exists():
+            probe.replace(path)
+
+
 def main() -> None:
     app = _load_app_info()
     if not ICON_PATH.exists():
         _write_placeholder_icon(ICON_PATH)
     _write_version_info(app)
+    try:
+        _ensure_output_unlocked(ROOT / "dist" / f"{app['exe_name']}.exe", app["app_name"])
+    except RuntimeError as exc:
+        print(exc)
+        sys.exit(1)
 
     subprocess.check_call([sys.executable, "-m", "PyInstaller", "main.spec"])
 

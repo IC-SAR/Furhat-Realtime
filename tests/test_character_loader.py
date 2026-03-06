@@ -27,10 +27,14 @@ def _write_character(
     with_links: bool = True,
     include_external_links: bool = True,
     external_links: list[str] | None = None,
+    agent_name: str = "",
+    description: str = "",
 ) -> None:
     payload: dict[str, object] = {
         "id": char_id,
         "name": char_id,
+        "agentName": agent_name,
+        "description": description,
         "openingLine": "Hello",
         "voiceId": "voice",
         "faceId": "face",
@@ -72,6 +76,26 @@ def _serve_test_http(
 
 
 class CharacterLoaderTests(unittest.TestCase):
+    def test_load_character_reads_existing_persona_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "character.json"
+            _write_character(
+                path,
+                char_id="stormy",
+                agent_name="Stormy",
+                description="Answers questions about district hiring and benefits.",
+            )
+
+            character = character_loader.load_character(path)
+
+        self.assertEqual(character.char_id, "stormy")
+        self.assertEqual(character.name, "stormy")
+        self.assertEqual(character.agent_name, "Stormy")
+        self.assertEqual(
+            character.description,
+            "Answers questions about district hiring and benefits.",
+        )
+
     def test_convert_github_to_raw_preserves_blob_conversion(self) -> None:
         converted = character_loader._convert_github_to_raw(  # noqa: SLF001
             "https://github.com/example/repo/blob/main/docs/page.md"
