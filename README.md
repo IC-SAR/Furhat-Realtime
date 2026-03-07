@@ -1,13 +1,19 @@
 # Furhat-Realtime
 
-Realtime speech interaction between Ollama and a Furhat robot, with a simple
-Tkinter UI to hold-to-listen and stream responses back to the robot.
+Realtime speech interaction between a Furhat robot and either Ollama or an
+external OpenAI-compatible LLM API, with a simple Tkinter UI to hold-to-listen
+and stream responses back to the robot.
 
 ## Requirements
 - Python 3.10+
-- Ollama running locally (`ollama serve`)
+- Either:
+  - Ollama running locally (`ollama serve`), or
+  - an external OpenAI-compatible LLM API endpoint and API key
 - A Furhat robot reachable at the IP in `src/settings.json`
 - Windows PowerShell (for the helper scripts)
+
+Note: RAG index building still uses local Ollama embeddings. External API
+support in this release applies to chat generation, not embeddings.
 
 ## Quick start (recommended, cross-platform)
 1. Update the robot IP in `src/settings.json`.
@@ -53,11 +59,51 @@ If you prefer PowerShell wrappers:
 ## How it works
 - The UI runs on the main thread.
 - A background asyncio loop handles Furhat events.
-- When you release the button, the recognized text is sent to Ollama and
-  spoken back in short, cleaned-up chunks.
+- When you release the button, the recognized text is sent to the configured
+  LLM provider and spoken back in short, cleaned-up chunks.
+
+### Architecture
+```mermaid
+flowchart LR
+  User[User] --> Desktop[Desktop UI]
+  User --> Web[Public Web UI]
+  Desktop --> Runtime[Robot Runtime]
+  Web --> Runtime
+  Runtime --> Furhat[Furhat Robot]
+  Runtime --> LLM[LLM Provider]
+  Runtime --> RAG[RAG Retriever]
+  Settings[src/settings.json] --> Desktop
+  Character[Character JSON] --> Runtime
+  Character --> RAG
+  Presets[data/demo_presets.json] --> Web
+  Presets --> Desktop
+  RAG --> Embeddings[Local Ollama Embeddings]
+```
+
+### Interaction Flow
+```mermaid
+sequenceDiagram
+  participant User
+  participant UI as Desktop/Web UI
+  participant Runtime as Robot Runtime
+  participant Furhat as Furhat Robot
+  participant RAG as RAG Retriever
+  participant LLM as LLM Provider
+
+  User->>UI: Hold to listen / send preset / type prompt
+  UI->>Runtime: Start request
+  Runtime->>Furhat: Listen or prepare response
+  Furhat-->>Runtime: Recognized text
+  Runtime->>RAG: Retrieve supporting context
+  RAG-->>Runtime: Top matching chunks
+  Runtime->>LLM: Generate grounded reply
+  LLM-->>Runtime: Response text
+  Runtime->>Furhat: Speak cleaned response
+  Furhat-->>User: Spoken reply
+```
 
 ## Configuration
-- `src/settings.json` stores IP, model, temperature, listen, voice, and character settings.
+- `src/settings.json` stores IP, provider, model, temperature, external API settings, listen, voice, and character settings.
 - `src/Furhat/settings.json` is still read as a legacy fallback if the canonical file is missing.
 - `data/demo_presets.json` stores optional public web prompt presets, with `global` presets and per-character overrides by `char_id`.
 - `src/Furhat/Ollama/config.py` sets the default model name.
@@ -66,11 +112,20 @@ If you prefer PowerShell wrappers:
 
 ### Useful environment variables
 - `OLLAMA_LLM_LIBRARY=cuda_v12` to force GPU usage.
+- `LLM_API_KEY` or `OPENAI_API_KEY` as a fallback external API key if you do not want to store it in settings.
 - `OLLAMA_RESPONSE_TIMEOUT` (default 20s)
 - `RAG_RETRIEVAL_TIMEOUT` (default 10s)
 - `OLLAMA_MAX_CONCURRENT` (default 1)
 - `RAG_REFRESH_DAYS` (default 0, disables time-based refresh)
 - `RAG_FORCE_REFRESH=1` to force re-download on every run.
+
+### External API setup
+The desktop `Settings` tab now supports:
+- `provider`: `ollama` or `openai_compatible`
+- `api_base_url`: for example `https://api.openai.com/v1` or another compatible endpoint
+- `api_key`: optional if you supply `LLM_API_KEY` or `OPENAI_API_KEY`
+
+`Refresh` under the model selector will query the active provider's models endpoint.
 
 ## Web control (optional)
 The app starts a lightweight web server for public booth interaction:

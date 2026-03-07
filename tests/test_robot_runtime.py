@@ -187,6 +187,7 @@ class RobotRuntimeTests(unittest.IsolatedAsyncioTestCase):
         set_system_prompt.assert_called_once()
         clear_messages.assert_called_once()
         self.assertIn("Stormy", set_system_prompt.call_args.args[0])
+        self.assertNotIn("Hello there", set_system_prompt.call_args.args[0])
         voice_calls = self.fake_client.calls_named("request_set_voice")
         self.assertEqual(voice_calls[-1]["voice"], "char-voice")
         parameter_calls = self.fake_client.calls_named("request_set_voice_parameters")
@@ -269,6 +270,18 @@ class RobotRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.runtime.runtime_status.connected)
         self.assertEqual(self.runtime.runtime_status.last_error, "boom")
 
+    async def test_disconnect_uses_runtime_loop_and_resets_handler_state(self) -> None:
+        self.runtime.runtime_loop = asyncio.get_running_loop()
+        self.runtime.handlers_registered = True
+        self.runtime.runtime_status.connected = True
+
+        self.runtime.disconnect()
+        await asyncio.sleep(0.01)
+
+        self.assertEqual(len(self.fake_client.calls_named("disconnect")), 1)
+        self.assertFalse(self.runtime.runtime_status.connected)
+        self.assertFalse(self.runtime.handlers_registered)
+
     async def test_web_preset_prompt_records_transcript_metadata(self) -> None:
         with (
             mock.patch.object(runtime_module, "SPEAK_THINKING", False),
@@ -290,6 +303,49 @@ class RobotRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transcript[0]["channel"], "web")
         self.assertEqual(transcript[0]["source"], "preset")
         self.assertEqual(transcript[0]["preset_id"], "intro")
+
+    async def test_no_context_prompt_still_uses_grounded_prompt_template(self) -> None:
+        with (
+            mock.patch.object(runtime_module, "SPEAK_THINKING", False),
+            mock.patch.object(runtime_module.retriever, "retrieve_context", return_value=""),
+            mock.patch.object(
+                runtime_module.prompting,
+                "build_prompt",
+                return_value="grounded no-context prompt",
+            ) as build_prompt,
+            mock.patch.object(
+                runtime_module.Ollama,
+                "get_full_response",
+                return_value="short reply",
+            ) as get_full_response,
+            mock.patch.object(runtime_module.text, "shorten_for_speech", side_effect=lambda value: value),
+            mock.patch.object(runtime_module.text, "sanitize_for_speech", side_effect=lambda value: value),
+        ):
+            await self.runtime.speak_from_prompt("hello there")
+
+        build_prompt.assert_called_once_with("hello there", "")
+        get_full_response.assert_called_once_with("grounded no-context prompt")
+
+    async def test_speech_timeout_marks_transcript_error(self) -> None:
+        async def slow_speak(*args: object, **kwargs: object) -> None:
+            await asyncio.sleep(0.05)
+
+        self.fake_client.on_speak_text = slow_speak
+
+        with (
+            mock.patch.object(runtime_module, "SPEAK_THINKING", False),
+            mock.patch.object(runtime_module.retriever, "retrieve_context", return_value="context"),
+            mock.patch.object(runtime_module.Ollama, "get_full_response", return_value="reply"),
+            mock.patch.object(runtime_module.text, "shorten_for_speech", side_effect=lambda value: value),
+            mock.patch.object(runtime_module.text, "sanitize_for_speech", side_effect=lambda value: value),
+            mock.patch.object(self.runtime, "_speech_timeout_for_text", return_value=0.01),
+        ):
+            await self.runtime.speak_from_prompt("hello there")
+
+        self.assertEqual(len(self.fake_client.calls_named("request_speak_stop")), 1)
+        transcript = self.runtime.get_transcript()
+        self.assertEqual(transcript[-1]["status"], "error")
+        self.assertEqual(transcript[-1]["error"], "speech timeout")
 
     async def test_empty_listen_result_records_empty_transcript(self) -> None:
         with mock.patch.object(runtime_module.robot_config, "END_SPEECH_TIMEOUT", 0.01):

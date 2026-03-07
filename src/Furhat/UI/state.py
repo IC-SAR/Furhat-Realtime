@@ -82,6 +82,10 @@ class SettingsView:
     voice_rate_value: tk.DoubleVar
     voice_volume_value: tk.DoubleVar
     apply_button: tk.Button
+    provider_value: tk.StringVar | None = None
+    provider_menu: tk.OptionMenu | None = None
+    api_base_url_value: tk.StringVar | None = None
+    api_key_value: tk.StringVar | None = None
 
 
 @dataclass(slots=True)
@@ -214,7 +218,7 @@ class UIState:
         self.shell.robot_state_label.configure(fg=color)
 
     def set_ollama_state(self, message: str, color: str) -> None:
-        value = f"Ollama: {message}"
+        value = f"LLM: {message}"
         self.shell.ollama_state_var.set(value)
         self.shell.ollama_state_label.configure(fg=color)
         self.system.ollama_status_var.set(value)

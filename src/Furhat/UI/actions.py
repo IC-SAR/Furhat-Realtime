@@ -191,11 +191,12 @@ class UIActions:
             or "rag build error" in msg
             or "character voice error" in msg
             or "ollama error" in msg
+            or "llm error" in msg
             or "speech timeout" in msg
         ):
             self.state.clear_status()
             self.state.flash_status(message, "#f87171", duration_ms=5000)
-        elif "rag timeout" in msg or "ollama timeout" in msg:
+        elif "rag timeout" in msg or "ollama timeout" in msg or "llm timeout" in msg:
             self.state.clear_status()
             self.state.flash_status(message, "#fbbf24", duration_ms=5000)
 
@@ -655,7 +656,7 @@ class UIActions:
         if not models:
             models = [chatbot.get_model()]
         else:
-            self.state.set_ollama_state("ok", "#4ade80")
+            self.state.set_ollama_state(f"ok ({chatbot.get_provider_label()})", "#4ade80")
 
         menu = self.state.settings.model_menu["menu"]
         menu.delete(0, "end")
@@ -802,6 +803,9 @@ class UIActions:
 
     def _build_settings(self) -> AppSettings:
         return AppSettings(
+            provider=(self.state.settings.provider_value.get().strip() if self.state.settings.provider_value else chatbot.get_provider()),
+            api_base_url=(self.state.settings.api_base_url_value.get().strip() if self.state.settings.api_base_url_value else chatbot.get_api_base_url()),
+            api_key=(self.state.settings.api_key_value.get().strip() if self.state.settings.api_key_value else chatbot.get_api_key()),
             model=self.state.settings.model_value.get().strip() or chatbot.get_model(),
             temperature=float(self.state.settings.temperature_value.get()),
             ip=self.state.settings.ip_value.get().strip() or robot.get_ip(),
@@ -828,7 +832,30 @@ class UIActions:
         self.state.set_apply_enabled(False)
         self.state.set_status("applying settings...", "#38bdf8")
 
+        previous_provider = chatbot.get_provider()
+        previous_model = chatbot.get_model()
+        previous_api_base_url = chatbot.get_api_base_url()
+        previous_api_key = chatbot.get_api_key()
+        new_provider = (
+            self.state.settings.provider_value.get().strip()
+            if self.state.settings.provider_value is not None
+            else previous_provider
+        )
+        new_api_base_url = (
+            self.state.settings.api_base_url_value.get().strip()
+            if self.state.settings.api_base_url_value is not None
+            else previous_api_base_url
+        )
+        new_api_key = (
+            self.state.settings.api_key_value.get().strip()
+            if self.state.settings.api_key_value is not None
+            else previous_api_key
+        )
+
         try:
+            chatbot.set_provider(new_provider)
+            chatbot.set_api_base_url(new_api_base_url)
+            chatbot.set_api_key(new_api_key)
             chatbot.set_temperature(float(self.state.settings.temperature_value.get()))
             robot.set_ip(self.state.settings.ip_value.get())
             robot.set_listen_settings(
@@ -862,15 +889,27 @@ class UIActions:
             self.state.set_apply_enabled(True)
             return
 
-        if new_model != chatbot.get_model():
+        model_needs_apply = (
+            new_model != previous_model
+            or new_provider != previous_provider
+            or new_api_base_url != previous_api_base_url
+            or new_api_key != previous_api_key
+        )
+
+        if model_needs_apply:
 
             def _apply_model() -> None:
                 try:
                     self.state.root.after(
                         0,
-                        lambda: self.state.set_status("downloading model...", "#38bdf8"),
+                        lambda: self.state.set_status(
+                            "downloading model..." if chatbot.is_ollama_provider() else "applying llm settings...",
+                            "#38bdf8",
+                        ),
                     )
                     chatbot.set_model(new_model)
+                    chatbot.clear_messages()
+                    self.state.root.after(0, self.refresh_model_list)
                     self.state.root.after(
                         0,
                         lambda: self._finish_status_update("settings updated", "#4ade80"),
@@ -926,7 +965,19 @@ class UIActions:
             self.state.set_status(f"settings load error: {exc}", "#f87171")
             return
 
-        chatbot.load_saved_settings(settings.model, settings.temperature)
+        chatbot.load_saved_settings(
+            settings.model,
+            settings.temperature,
+            settings.provider,
+            settings.api_base_url,
+            settings.api_key,
+        )
+        if self.state.settings.provider_value is not None:
+            self.state.settings.provider_value.set(settings.provider)
+        if self.state.settings.api_base_url_value is not None:
+            self.state.settings.api_base_url_value.set(settings.api_base_url)
+        if self.state.settings.api_key_value is not None:
+            self.state.settings.api_key_value.set(settings.api_key)
         self.state.settings.model_value.set(settings.model)
         self.state.settings.temperature_value.set(float(settings.temperature))
         self.state.settings.ip_value.set(settings.ip)

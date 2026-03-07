@@ -10,6 +10,9 @@ from . import paths
 DEFAULT_MODEL = "gemma3:4b"
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_IP = "172.27.8.32"
+DEFAULT_PROVIDER = "ollama"
+DEFAULT_API_BASE_URL = ""
+DEFAULT_API_KEY = ""
 
 
 @dataclass(slots=True)
@@ -73,6 +76,9 @@ class VoiceSettings:
 class AppSettings:
     model: str = DEFAULT_MODEL
     temperature: float = DEFAULT_TEMPERATURE
+    provider: str = DEFAULT_PROVIDER
+    api_base_url: str = DEFAULT_API_BASE_URL
+    api_key: str = DEFAULT_API_KEY
     ip: str = DEFAULT_IP
     character_path: str = ""
     listen: ListenSettings = field(default_factory=ListenSettings)
@@ -85,6 +91,9 @@ class AppSettings:
         return cls(
             model=str(data.get("model", DEFAULT_MODEL)).strip() or DEFAULT_MODEL,
             temperature=float(data.get("temperature", DEFAULT_TEMPERATURE)),
+            provider=str(data.get("provider", DEFAULT_PROVIDER)).strip() or DEFAULT_PROVIDER,
+            api_base_url=str(data.get("api_base_url", DEFAULT_API_BASE_URL)).strip(),
+            api_key=str(data.get("api_key", DEFAULT_API_KEY)).strip(),
             ip=str(data.get("ip", DEFAULT_IP)).strip() or DEFAULT_IP,
             character_path=str(data.get("character_path", "")).strip(),
             listen=ListenSettings.from_dict(data.get("listen")),
@@ -95,6 +104,9 @@ class AppSettings:
         return {
             "model": self.model,
             "temperature": self.temperature,
+            "provider": self.provider,
+            "api_base_url": self.api_base_url,
+            "api_key": self.api_key,
             "ip": self.ip,
             "character_path": self.character_path,
             "listen": self.listen.to_dict(),

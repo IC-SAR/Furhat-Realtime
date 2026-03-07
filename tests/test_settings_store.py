@@ -20,6 +20,9 @@ class SettingsStoreTests(unittest.TestCase):
             temp_root = Path(temp_dir)
             canonical = temp_root / "src" / "settings.json"
             saved = settings_store.AppSettings(
+                provider="openai_compatible",
+                api_base_url="https://api.example.com/v1",
+                api_key="secret-key",
                 model="test-model",
                 temperature=0.3,
                 ip="10.0.0.5",
@@ -64,6 +67,7 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(loaded_path, legacy)
             self.assertEqual(loaded.model, "legacy-model")
             self.assertEqual(loaded.temperature, 0.5)
+            self.assertEqual(loaded.provider, settings_store.DEFAULT_PROVIDER)
             self.assertEqual(loaded.ip, "127.0.0.2")
             self.assertEqual(loaded.character_path, "legacy.json")
 

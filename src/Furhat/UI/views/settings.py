@@ -8,6 +8,9 @@ from ..state import SettingsView
 def build_settings_view(
     parent: tk.Frame,
     *,
+    provider: str,
+    api_base_url: str,
+    api_key: str,
     model: str,
     temperature: float,
     ip_address: str,
@@ -22,6 +25,49 @@ def build_settings_view(
         fg="#e2e8f0",
         bg="#111827",
         font=("Trebuchet MS", 12, "bold"),
+    )
+    provider_label = tk.Label(
+        frame,
+        text="LLM provider",
+        fg="#cbd5f5",
+        bg="#111827",
+        font=("Trebuchet MS", 10),
+    )
+    provider_value = tk.StringVar(value=provider)
+    provider_menu = tk.OptionMenu(frame, provider_value, "ollama", "openai_compatible")
+    provider_menu.configure(bg="#0f172a", fg="#e2e8f0", activebackground="#111827")
+    api_base_url_label = tk.Label(
+        frame,
+        text="External API base URL",
+        fg="#cbd5f5",
+        bg="#111827",
+        font=("Trebuchet MS", 10),
+    )
+    api_base_url_value = tk.StringVar(value=api_base_url)
+    api_base_url_entry = tk.Entry(
+        frame,
+        textvariable=api_base_url_value,
+        fg="#0f172a",
+        bg="#e2e8f0",
+        width=34,
+        relief="flat",
+    )
+    api_key_label = tk.Label(
+        frame,
+        text="External API key",
+        fg="#cbd5f5",
+        bg="#111827",
+        font=("Trebuchet MS", 10),
+    )
+    api_key_value = tk.StringVar(value=api_key)
+    api_key_entry = tk.Entry(
+        frame,
+        textvariable=api_key_value,
+        fg="#0f172a",
+        bg="#e2e8f0",
+        width=34,
+        relief="flat",
+        show="*",
     )
     model_label = tk.Label(
         frame,
@@ -253,34 +299,44 @@ def build_settings_view(
     )
 
     title.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
-    model_label.grid(row=1, column=0, sticky="w")
-    model_entry.grid(row=1, column=1, sticky="w", padx=(8, 0))
-    model_menu.grid(row=1, column=2, sticky="w", padx=(8, 0))
-    refresh_models_button.grid(row=1, column=3, sticky="w", padx=(8, 0))
-    temperature_label.grid(row=2, column=0, sticky="w")
-    temperature_scale.grid(row=2, column=1, columnspan=3, sticky="w", pady=(2, 6))
-    ip_label.grid(row=3, column=0, sticky="w")
-    ip_entry.grid(row=3, column=1, sticky="w", padx=(8, 0))
-    reconnect_button.grid(row=3, column=2, sticky="w", padx=(8, 0))
-    local_ip_label.grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
-    listen_title.grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 6))
-    listen_partial_cb.grid(row=6, column=0, sticky="w")
-    listen_concat_cb.grid(row=6, column=1, sticky="w")
-    listen_no_speech_cb.grid(row=7, column=0, sticky="w")
-    listen_user_end_cb.grid(row=7, column=1, sticky="w")
-    listen_robot_start_cb.grid(row=8, column=0, sticky="w")
-    listen_interrupt_cb.grid(row=8, column=1, sticky="w")
-    voice_title.grid(row=9, column=0, columnspan=3, sticky="w", pady=(10, 6))
-    voice_name_label.grid(row=10, column=0, sticky="w")
-    voice_name_entry.grid(row=10, column=1, sticky="w", padx=(8, 0))
-    voice_rate_label.grid(row=11, column=0, sticky="w")
-    voice_rate_scale.grid(row=11, column=1, columnspan=2, sticky="w", pady=(2, 6))
-    voice_volume_label.grid(row=12, column=0, sticky="w")
-    voice_volume_scale.grid(row=12, column=1, columnspan=2, sticky="w")
-    apply_button.grid(row=13, column=0, columnspan=3, sticky="w", pady=(10, 0))
+    provider_label.grid(row=1, column=0, sticky="w")
+    provider_menu.grid(row=1, column=1, sticky="w", padx=(8, 0))
+    model_label.grid(row=2, column=0, sticky="w")
+    model_entry.grid(row=2, column=1, sticky="w", padx=(8, 0))
+    model_menu.grid(row=2, column=2, sticky="w", padx=(8, 0))
+    refresh_models_button.grid(row=2, column=3, sticky="w", padx=(8, 0))
+    api_base_url_label.grid(row=3, column=0, sticky="w")
+    api_base_url_entry.grid(row=3, column=1, columnspan=3, sticky="w", padx=(8, 0))
+    api_key_label.grid(row=4, column=0, sticky="w")
+    api_key_entry.grid(row=4, column=1, columnspan=3, sticky="w", padx=(8, 0))
+    temperature_label.grid(row=5, column=0, sticky="w")
+    temperature_scale.grid(row=5, column=1, columnspan=3, sticky="w", pady=(2, 6))
+    ip_label.grid(row=6, column=0, sticky="w")
+    ip_entry.grid(row=6, column=1, sticky="w", padx=(8, 0))
+    reconnect_button.grid(row=6, column=2, sticky="w", padx=(8, 0))
+    local_ip_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(6, 0))
+    listen_title.grid(row=8, column=0, columnspan=3, sticky="w", pady=(10, 6))
+    listen_partial_cb.grid(row=9, column=0, sticky="w")
+    listen_concat_cb.grid(row=9, column=1, sticky="w")
+    listen_no_speech_cb.grid(row=10, column=0, sticky="w")
+    listen_user_end_cb.grid(row=10, column=1, sticky="w")
+    listen_robot_start_cb.grid(row=11, column=0, sticky="w")
+    listen_interrupt_cb.grid(row=11, column=1, sticky="w")
+    voice_title.grid(row=12, column=0, columnspan=3, sticky="w", pady=(10, 6))
+    voice_name_label.grid(row=13, column=0, sticky="w")
+    voice_name_entry.grid(row=13, column=1, sticky="w", padx=(8, 0))
+    voice_rate_label.grid(row=14, column=0, sticky="w")
+    voice_rate_scale.grid(row=14, column=1, columnspan=2, sticky="w", pady=(2, 6))
+    voice_volume_label.grid(row=15, column=0, sticky="w")
+    voice_volume_scale.grid(row=15, column=1, columnspan=2, sticky="w")
+    apply_button.grid(row=16, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
     return SettingsView(
         frame=frame,
+        provider_value=provider_value,
+        provider_menu=provider_menu,
+        api_base_url_value=api_base_url_value,
+        api_key_value=api_key_value,
         model_value=model_value,
         model_options=model_options,
         model_menu=model_menu,

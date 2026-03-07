@@ -12,9 +12,15 @@ if (Test-Path $venvPython) {
 $env:PYTHONPATH = (Join-Path $root "src")
 
 try {
-  $null = ollama ps 2>$null
+  $provider = & $python -c "from Furhat import settings_store; print(settings_store.load_settings().provider)"
+  if ($provider.Trim() -eq "ollama") {
+    try {
+      $null = ollama ps 2>$null
+    } catch {
+      Write-Host "Ollama not detected. Start it in another window: ollama serve"
+    }
+  }
 } catch {
-  Write-Host "Ollama not detected. Start it in another window: ollama serve"
 }
 
-& $python (Join-Path $root "src\\Furhat\\main.py")
+& $python -m Furhat.main

@@ -126,7 +126,13 @@ def _make_scrollable_tab(
 
 def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     settings = settings_store.load_settings()
-    chatbot.load_saved_settings(settings.model, settings.temperature)
+    chatbot.load_saved_settings(
+        settings.model,
+        settings.temperature,
+        settings.provider,
+        settings.api_base_url,
+        settings.api_key,
+    )
 
     root = tk.Tk()
     root.title("Furhat Realtime")
@@ -184,7 +190,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     )
     status_frame = tk.Frame(canvas, bg="#0f172a")
     robot_state_var = tk.StringVar(value="Robot: connecting...")
-    ollama_state_var = tk.StringVar(value="Ollama: unknown")
+    ollama_state_var = tk.StringVar(value="LLM: unknown")
     robot_state_label = tk.Label(
         status_frame,
         textvariable=robot_state_var,
@@ -229,6 +235,9 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     )
     settings_view = build_settings_view(
         settings_scroll_parent,
+        provider=settings.provider,
+        api_base_url=settings.api_base_url,
+        api_key=settings.api_key,
         model=settings.model,
         temperature=settings.temperature,
         ip_address=settings.ip,

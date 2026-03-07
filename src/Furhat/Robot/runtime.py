@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import os
 import random
-import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -34,12 +34,15 @@ THINKING_REPEAT_SEC = float(
         str(robot_config.THINKING_RESPONSE_INTERVAL_SECONDS),
     )
 )
-SPEAK_WAIT_TIMEOUT = float(os.getenv("SPEAK_WAIT_TIMEOUT", "20"))
 THINKING_WAIT_TIMEOUT = float(os.getenv("THINKING_WAIT_TIMEOUT", "8"))
 OLLAMA_RESPONSE_TIMEOUT = float(os.getenv("OLLAMA_RESPONSE_TIMEOUT", "20"))
 RAG_RETRIEVAL_TIMEOUT = float(os.getenv("RAG_RETRIEVAL_TIMEOUT", "10"))
 OLLAMA_MAX_CONCURRENT = max(1, int(os.getenv("OLLAMA_MAX_CONCURRENT", "1")))
 DISCONNECT_TIMEOUT = float(os.getenv("FURHAT_DISCONNECT_TIMEOUT", "3"))
+SPEECH_TIMEOUT_BASE_SEC = float(os.getenv("SPEECH_TIMEOUT_BASE_SEC", "6"))
+SPEECH_TIMEOUT_PER_CHAR_SEC = float(os.getenv("SPEECH_TIMEOUT_PER_CHAR_SEC", "0.08"))
+SPEECH_TIMEOUT_MIN_SEC = float(os.getenv("SPEECH_TIMEOUT_MIN_SEC", "8"))
+SPEECH_TIMEOUT_MAX_SEC = float(os.getenv("SPEECH_TIMEOUT_MAX_SEC", "45"))
 MAX_TRANSCRIPT_TURNS = 100
 THINKING_PHRASES = list(robot_config.GENERATION_RESPONSES)
 
@@ -72,12 +75,17 @@ class RobotRuntime:
         self.active_session_id: int | None = None
         self.cancelled_session_ids: set[int] = set()
         self.last_completed_response = ""
+        self.runtime_loop: asyncio.AbstractEventLoop | None = None
         self._init_client(robot_config.IP)
 
     def _init_client(self, ip_address: str) -> None:
         self.furhat: FurhatClientProtocol = self.client_factory(ip_address)
         self.handlers_registered = False
         self.runtime_status.connected = False
+        self.runtime_status.listening = False
+        self.partial_text = ""
+        self.recognized_text = ""
+        self.hear_end_event = asyncio.Event()
 
     @property
     def is_speaking(self) -> bool:
@@ -99,6 +107,44 @@ class RobotRuntime:
     def _notify(self, message: str) -> None:
         if self.log_callback:
             self.log_callback(message)
+
+    def _capture_runtime_loop(self) -> None:
+        try:
+            self.runtime_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+    def _speech_timeout_for_text(
+        self,
+        text_value: str,
+        explicit_timeout: Optional[float],
+    ) -> Optional[float]:
+        if explicit_timeout is not None:
+            return explicit_timeout if explicit_timeout > 0 else None
+        normalized = " ".join(text_value.strip().split())
+        if not normalized:
+            return SPEECH_TIMEOUT_MIN_SEC
+        timeout_value = SPEECH_TIMEOUT_BASE_SEC + (
+            len(normalized) * SPEECH_TIMEOUT_PER_CHAR_SEC
+        )
+        timeout_value = max(SPEECH_TIMEOUT_MIN_SEC, timeout_value)
+        timeout_value = min(SPEECH_TIMEOUT_MAX_SEC, timeout_value)
+        return timeout_value
+
+    def _submit_runtime_coro(
+        self,
+        coro: asyncio.Future,
+    ) -> concurrent.futures.Future[object] | asyncio.Task[object] | None:
+        loop = self.runtime_loop
+        if loop is None or not loop.is_running():
+            return None
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        if current_loop is loop:
+            return loop.create_task(coro)
+        return asyncio.run_coroutine_threadsafe(coro, loop)
 
     @staticmethod
     def _event_text(event: object) -> str:
@@ -136,9 +182,15 @@ class RobotRuntime:
             logger.warning("Failed to apply voice settings: %s", exc)
         if hasattr(Ollama, "load_saved_settings"):
             try:
-                Ollama.load_saved_settings(settings.model, settings.temperature)
+                Ollama.load_saved_settings(
+                    settings.model,
+                    settings.temperature,
+                    settings.provider,
+                    settings.api_base_url,
+                    settings.api_key,
+                )
             except Exception as exc:
-                logger.warning("Failed to apply Ollama settings: %s", exc)
+                logger.warning("Failed to apply LLM settings: %s", exc)
         return settings
 
     def load_startup_character(self, settings: settings_store.AppSettings) -> None:
@@ -251,7 +303,9 @@ class RobotRuntime:
         if self.runtime_status.listening or self.runtime_status.speech_session or self.runtime_status.speaking:
             raise RuntimeError("robot is busy")
         self.runtime_status.spoken = text_value
-        await self._speak_text_safe(text_value, wait=True, abort=abort, timeout=SPEAK_WAIT_TIMEOUT)
+        result = await self._speak_text_safe(text_value, wait=True, abort=abort, timeout=None)
+        if result == "timeout":
+            raise RuntimeError("speech timeout")
 
     async def _attend_closest_user(self) -> None:
         try:
@@ -268,13 +322,15 @@ class RobotRuntime:
         wait: bool = True,
         abort: bool = False,
         timeout: Optional[float] = None,
-    ) -> None:
+    ) -> str:
+        resolved_timeout = self._speech_timeout_for_text(text_value, timeout) if wait else None
         try:
             speak_coro = self.furhat.request_speak_text(text_value, wait=wait, abort=abort)
-            if wait and timeout and timeout > 0:
-                await asyncio.wait_for(speak_coro, timeout=timeout)
+            if wait and resolved_timeout:
+                await asyncio.wait_for(speak_coro, timeout=resolved_timeout)
             else:
                 await speak_coro
+            return "completed"
         except asyncio.TimeoutError:
             logger.warning("Timed out waiting for speech to finish.")
             self._notify("speech timeout")
@@ -283,8 +339,10 @@ class RobotRuntime:
                     await self.furhat.request_speak_stop()
                 except Exception:
                     logger.exception("Failed to stop speech after timeout.")
+            return "timeout"
 
     async def on_listen_activate(self, *, channel: str = "desktop") -> None:
+        self._capture_runtime_loop()
         logger.info("Listening...")
         self._notify("listening started")
         self.partial_text = ""
@@ -307,6 +365,7 @@ class RobotRuntime:
         )
 
     async def on_listen_deactivate(self) -> None:
+        self._capture_runtime_loop()
         await asyncio.sleep(max(0.0, robot_config.USER_LETGO_DEBOUNCER_SECONDS))
         logger.info("Not listening...")
         self._notify("listening stopped")
@@ -380,6 +439,7 @@ class RobotRuntime:
         await self._attend_closest_user()
 
     async def connect_once(self) -> None:
+        self._capture_runtime_loop()
         try:
             await self.furhat.connect()
             self.runtime_status.connected = True
@@ -398,7 +458,7 @@ class RobotRuntime:
                     logger.warning("Failed to apply character voice: %s", exc)
                     self._notify(f"character voice error: {exc}")
             greeting = self.character_info.opening_line or "Activated"
-            await self._speak_text_safe(greeting, wait=True, abort=True, timeout=10)
+            await self._speak_text_safe(greeting, wait=True, abort=True, timeout=None)
             logger.info("Activated")
             self._notify("robot connected")
             await self._attend_closest_user()
@@ -439,6 +499,7 @@ class RobotRuntime:
             await asyncio.sleep(1)
 
     async def setup(self) -> None:
+        self._capture_runtime_loop()
         settings = self.load_runtime_settings()
         self.load_startup_character(settings)
         await self.connect_until_ready()
@@ -446,44 +507,42 @@ class RobotRuntime:
         print("Ready")
         await self.run_idle_loop()
 
-    async def _async_disconnect(self) -> None:
+    async def _async_disconnect(self, client: FurhatClientProtocol | None = None) -> None:
+        self._capture_runtime_loop()
+        target_client = client or self.furhat
+        is_current_client = target_client is self.furhat
         try:
             if DISCONNECT_TIMEOUT > 0:
-                await asyncio.wait_for(self.furhat.disconnect(), timeout=DISCONNECT_TIMEOUT)
+                await asyncio.wait_for(target_client.disconnect(), timeout=DISCONNECT_TIMEOUT)
             else:
-                await self.furhat.disconnect()
-            self.runtime_status.connected = False
-            self.runtime_status.last_error = ""
+                await target_client.disconnect()
+            if is_current_client:
+                self.handlers_registered = False
+                self.runtime_status.connected = False
+                self.runtime_status.listening = False
+                self.runtime_status.last_error = ""
         except asyncio.TimeoutError:
             logger.warning("Timed out while disconnecting from Furhat.")
             self._notify("robot disconnect timeout")
-            self.runtime_status.connected = False
-            self.runtime_status.last_error = "disconnect timeout"
+            if is_current_client:
+                self.runtime_status.connected = False
+                self.runtime_status.last_error = "disconnect timeout"
         except Exception as exc:
             logger.exception("Failed to disconnect from Furhat.")
-            self.runtime_status.connected = False
-            self.runtime_status.last_error = str(exc)
+            if is_current_client:
+                self.runtime_status.connected = False
+                self.runtime_status.last_error = str(exc)
 
     def _schedule_disconnect(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            try:
-                loop.create_task(self._async_disconnect())
-                return
-            except Exception:
-                logger.exception("Failed to schedule Furhat disconnect.")
-
-        threading.Thread(target=lambda: asyncio.run(self._async_disconnect()), daemon=True).start()
+        target_client = self.furhat
+        submitted = self._submit_runtime_coro(self._async_disconnect(target_client))
+        if submitted is None:
+            logger.warning("Runtime loop unavailable; skipping Furhat disconnect scheduling.")
 
     def disconnect(self) -> None:
         try:
             self._schedule_disconnect()
             self.runtime_status.connected = False
-            self.runtime_status.last_error = ""
             self._notify("robot disconnected")
         except Exception:
             logger.exception("Failed to disconnect from Furhat.")
@@ -496,8 +555,11 @@ class RobotRuntime:
         if not ip_address:
             raise ValueError("IP address cannot be empty.")
         robot_config.IP = ip_address
+        old_client = self.furhat
         try:
-            self._schedule_disconnect()
+            submitted = self._submit_runtime_coro(self._async_disconnect(old_client))
+            if submitted is None:
+                logger.warning("Runtime loop unavailable; skipping Furhat disconnect scheduling.")
         except Exception:
             logger.exception("Failed to disconnect from Furhat.")
         self._init_client(robot_config.IP)
@@ -558,6 +620,7 @@ class RobotRuntime:
         force_rag: bool = False,
         speak_greeting: bool = False,
     ) -> None:
+        self._capture_runtime_loop()
         if not path:
             raise ValueError("Character path is empty.")
         character_file = Path(path).expanduser()
@@ -600,7 +663,7 @@ class RobotRuntime:
                 self._notify(f"character voice error: {exc}")
 
         if speak_greeting and character.opening_line:
-            await self._speak_text_safe(character.opening_line, wait=True, abort=True, timeout=10)
+            await self._speak_text_safe(character.opening_line, wait=True, abort=True, timeout=None)
 
     async def stop_current_output(self) -> None:
         if self.active_session_id is None and not self.runtime_status.speaking:
@@ -624,6 +687,11 @@ class RobotRuntime:
         await self._speak_direct_output(greeting)
         self._notify("replayed greeting")
 
+    async def disconnect_async(self) -> None:
+        self.runtime_status.connected = False
+        self._notify("robot disconnected")
+        await self._async_disconnect(self.furhat)
+
     async def speak_from_prompt(
         self,
         prompt: str,
@@ -632,6 +700,7 @@ class RobotRuntime:
         source: str = "manual",
         preset_id: str = "",
     ) -> None:
+        self._capture_runtime_loop()
         self.runtime_status.prompt = prompt
         self.runtime_status.speech_session = True
         session_id = self._next_session_id()
@@ -687,22 +756,23 @@ class RobotRuntime:
                 turn.error = "stopped"
                 return
 
-            rag_prompt = prompting.build_prompt(prompt, context)
+            llm_prompt = prompting.build_prompt(prompt, context)
+            say_text = ""
 
             try:
                 async with self.ollama_semaphore:
                     say_text = await asyncio.wait_for(
-                        asyncio.to_thread(Ollama.get_full_response, rag_prompt),
+                        asyncio.to_thread(Ollama.get_full_response, llm_prompt),
                         timeout=OLLAMA_RESPONSE_TIMEOUT,
                     )
             except asyncio.TimeoutError:
-                logger.warning("Ollama request timed out.")
-                self._notify("ollama timeout")
+                logger.warning("LLM request timed out.")
+                self._notify("llm timeout")
                 say_text = ""
-                error_text = "ollama timeout"
+                error_text = "llm timeout"
             except Exception as exc:
-                logger.exception("Ollama request failed")
-                self._notify(f"ollama error: {exc}")
+                logger.exception("LLM request failed")
+                self._notify(f"llm error: {exc}")
                 say_text = ""
                 error_text = str(exc)
             finally:
@@ -729,10 +799,13 @@ class RobotRuntime:
             if say_text:
                 self.runtime_status.spoken = say_text
                 turn.spoken_text = say_text
-                await self._speak_text_safe(say_text, wait=True, timeout=SPEAK_WAIT_TIMEOUT)
+                speech_result = await self._speak_text_safe(say_text, wait=True, timeout=None)
                 if self._is_session_cancelled(session_id):
                     turn.status = "cancelled"
                     turn.error = "stopped"
+                elif speech_result == "timeout":
+                    turn.status = "error"
+                    turn.error = "speech timeout"
                 else:
                     turn.status = "completed"
                     self.last_completed_response = say_text
@@ -754,6 +827,7 @@ class RobotRuntime:
                 logger.exception("Error calling listen_button_callback at session end")
 
     async def reconnect(self) -> None:
+        self._capture_runtime_loop()
         try:
             await self.furhat.connect()
             self._register_handlers()

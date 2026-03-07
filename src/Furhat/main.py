@@ -17,11 +17,6 @@ def _start_loop(event_loop: asyncio.AbstractEventLoop) -> None:
     asyncio.set_event_loop(event_loop)
     event_loop.run_forever()
 
-
-def _start_robot() -> None:
-    asyncio.run(robot.setup())
-
-
 def main() -> None:
     logger.info("Starting Furhat Realtime.")
     # Dedicated asyncio loop on a background thread.
@@ -35,18 +30,22 @@ def main() -> None:
     # Start the web control server (for the exe and remote control).
     web_server.start_server(loop)
 
-    # Run the robot loop in a worker thread so the UI stays responsive.
-    worker_thread = threading.Thread(target=_start_robot, daemon=True)
-    worker_thread.start()
+    robot_future = asyncio.run_coroutine_threadsafe(robot.setup(), loop)
 
     def _on_close() -> None:
-        robot.disconnect()
+        try:
+            asyncio.run_coroutine_threadsafe(robot.disconnect_async(), loop).result(timeout=5)
+        except Exception:
+            logger.exception("Robot shutdown failed.")
+        if not robot_future.done():
+            robot_future.cancel()
         loop.call_soon_threadsafe(loop.stop)
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", _on_close)
     root.mainloop()
-    robot.disconnect()
+    if not robot_future.done():
+        robot_future.cancel()
 
 
 def run() -> int:

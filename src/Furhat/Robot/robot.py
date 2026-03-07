@@ -45,6 +45,10 @@ async def speak_greeting() -> None:
     await runtime.speak_greeting()
 
 
+async def disconnect_async() -> None:
+    await runtime.disconnect_async()
+
+
 async def setup() -> None:
     await runtime.setup()
 

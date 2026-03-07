@@ -14,7 +14,7 @@ def build_system_view(parent: tk.Frame, *, web_urls: dict[str, str]) -> SystemVi
         bg="#111827",
         font=("Trebuchet MS", 12, "bold"),
     )
-    ollama_status_var = tk.StringVar(value="Ollama: unknown")
+    ollama_status_var = tk.StringVar(value="LLM: unknown")
     ollama_status_label = tk.Label(
         frame,
         textvariable=ollama_status_var,
@@ -123,7 +123,7 @@ def build_system_view(parent: tk.Frame, *, web_urls: dict[str, str]) -> SystemVi
     )
     ollama_check_button = tk.Button(
         frame,
-        text="Check Ollama",
+        text="Check LLM",
         font=("Trebuchet MS", 9, "bold"),
         fg="#0f172a",
         bg="#38bdf8",
