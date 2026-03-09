@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, List
 
-from .config import CHUNK_OVERLAP, CHUNK_SIZE, EMBED_MODEL
+from . import config as rag_config
 from .embeddings import embed_texts
 
 
@@ -80,10 +80,13 @@ def build_index(
     *,
     data_dir: Path,
     output: Path,
-    model: str = EMBED_MODEL,
-    chunk_size: int = CHUNK_SIZE,
-    chunk_overlap: int = CHUNK_OVERLAP,
+    model: str | None = None,
+    chunk_size: int | None = None,
+    chunk_overlap: int | None = None,
 ) -> int:
+    model = model or rag_config.EMBED_MODEL
+    chunk_size = rag_config.CHUNK_SIZE if chunk_size is None else chunk_size
+    chunk_overlap = rag_config.CHUNK_OVERLAP if chunk_overlap is None else chunk_overlap
     output.parent.mkdir(parents=True, exist_ok=True)
     entries = build_entries(data_dir, size=chunk_size, overlap=chunk_overlap)
     if not entries:

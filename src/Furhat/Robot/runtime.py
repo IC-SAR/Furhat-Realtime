@@ -5,6 +5,7 @@ import concurrent.futures
 import logging
 import os
 import random
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -13,6 +14,7 @@ from furhat_realtime_api import Events
 
 from .. import settings_store
 from ..Character import loader as character_loader
+from ..RAG import config as rag_config
 from ..RAG import prompting, retriever
 from ..Ollama import chatbot as Ollama
 from . import config as robot_config
@@ -43,6 +45,19 @@ SPEECH_TIMEOUT_BASE_SEC = float(os.getenv("SPEECH_TIMEOUT_BASE_SEC", "6"))
 SPEECH_TIMEOUT_PER_CHAR_SEC = float(os.getenv("SPEECH_TIMEOUT_PER_CHAR_SEC", "0.08"))
 SPEECH_TIMEOUT_MIN_SEC = float(os.getenv("SPEECH_TIMEOUT_MIN_SEC", "8"))
 SPEECH_TIMEOUT_MAX_SEC = float(os.getenv("SPEECH_TIMEOUT_MAX_SEC", "45"))
+THINKING_HEAD_TILT_ENABLED = os.getenv("THINKING_HEAD_TILT_ENABLED", "1").lower() in {
+    "1",
+    "true",
+    "yes",
+    "y",
+    "on",
+}
+THINKING_HEAD_TILT_STEP_SEC = float(os.getenv("THINKING_HEAD_TILT_STEP_SEC", "1.2"))
+THINKING_HEAD_TILT_POSES: tuple[tuple[float, float, float], ...] = (
+    (0.0, -6.0, 8.0),
+    (0.0, -4.0, -8.0),
+    (0.0, -5.0, 5.0),
+)
 MAX_TRANSCRIPT_TURNS = 100
 THINKING_PHRASES = list(robot_config.GENERATION_RESPONSES)
 
@@ -189,9 +204,74 @@ class RobotRuntime:
                     settings.api_base_url,
                     settings.api_key,
                 )
+                Ollama.configure_chat_settings(
+                    max_tokens=settings.chat.max_tokens,
+                    max_history_messages=settings.chat.max_history_messages,
+                    max_history_chars=settings.chat.max_history_chars,
+                    external_api_timeout=settings.chat.external_api_timeout,
+                )
             except Exception as exc:
                 logger.warning("Failed to apply LLM settings: %s", exc)
+        self.apply_behavior_settings(settings)
         return settings
+
+    def apply_behavior_settings(self, settings: settings_store.AppSettings) -> None:
+        global SPEAK_THINKING
+        global THINKING_DELAY_SEC
+        global THINKING_REPEAT_SEC
+        global THINKING_WAIT_TIMEOUT
+        global OLLAMA_RESPONSE_TIMEOUT
+        global RAG_RETRIEVAL_TIMEOUT
+        global DISCONNECT_TIMEOUT
+        global SPEECH_TIMEOUT_BASE_SEC
+        global SPEECH_TIMEOUT_PER_CHAR_SEC
+        global SPEECH_TIMEOUT_MIN_SEC
+        global SPEECH_TIMEOUT_MAX_SEC
+        global THINKING_PHRASES
+
+        Ollama.configure_chat_settings(
+            max_tokens=settings.chat.max_tokens,
+            max_history_messages=settings.chat.max_history_messages,
+            max_history_chars=settings.chat.max_history_chars,
+            external_api_timeout=settings.chat.external_api_timeout,
+        )
+        text.configure_speech_settings(
+            max_sentences=settings.speech.max_sentences,
+            max_chars=settings.speech.max_chars,
+        )
+        SPEAK_THINKING = bool(settings.speech.speak_thinking)
+        THINKING_DELAY_SEC = float(settings.speech.thinking_delay_sec)
+        THINKING_REPEAT_SEC = float(settings.speech.thinking_repeat_sec)
+        THINKING_WAIT_TIMEOUT = float(settings.speech.thinking_wait_timeout)
+        OLLAMA_RESPONSE_TIMEOUT = float(settings.chat.llm_response_timeout)
+        RAG_RETRIEVAL_TIMEOUT = float(settings.rag.retrieval_timeout)
+        DISCONNECT_TIMEOUT = float(settings.runtime.disconnect_timeout)
+        SPEECH_TIMEOUT_BASE_SEC = float(settings.speech.speech_timeout_base_sec)
+        SPEECH_TIMEOUT_PER_CHAR_SEC = float(settings.speech.speech_timeout_per_char_sec)
+        SPEECH_TIMEOUT_MIN_SEC = float(settings.speech.speech_timeout_min_sec)
+        SPEECH_TIMEOUT_MAX_SEC = float(settings.speech.speech_timeout_max_sec)
+        THINKING_PHRASES = list(settings.speech.thinking_phrases)
+
+        robot_config.END_SPEECH_TIMEOUT = float(settings.speech.end_speech_timeout)
+        robot_config.USER_LETGO_DEBOUNCER_SECONDS = float(
+            settings.speech.user_letgo_debouncer_seconds
+        )
+        robot_config.THINKING_RESPONSE_INTERVAL_SECONDS = float(
+            settings.speech.thinking_repeat_sec
+        )
+        robot_config.GENERATION_RESPONSES = list(settings.speech.thinking_phrases)
+
+        rag_config.apply_settings(
+            embed_model=settings.rag.embed_model,
+            top_k=settings.rag.top_k,
+            max_context_chars=settings.rag.max_context_chars,
+            chunk_size=settings.rag.chunk_size,
+            chunk_overlap=settings.rag.chunk_overlap,
+        )
+        retriever.apply_settings(
+            top_k=settings.rag.top_k,
+            max_context_chars=settings.rag.max_context_chars,
+        )
 
     def load_startup_character(self, settings: settings_store.AppSettings) -> None:
         try:
@@ -341,6 +421,214 @@ class RobotRuntime:
                     logger.exception("Failed to stop speech after timeout.")
             return "timeout"
 
+    async def _thinking_head_tilt_loop(
+        self,
+        response_ready: asyncio.Event,
+        session_id: int,
+    ) -> None:
+        if not THINKING_HEAD_TILT_ENABLED or not hasattr(self.furhat, "request_face_headpose"):
+            return
+        try:
+            await asyncio.sleep(min(max(0.15, THINKING_DELAY_SEC / 2.0), 0.5))
+            pose_index = 0
+            while not response_ready.is_set() and not self._is_session_cancelled(session_id):
+                yaw, pitch, roll = THINKING_HEAD_TILT_POSES[pose_index % len(THINKING_HEAD_TILT_POSES)]
+                pose_index += 1
+                await self.furhat.request_face_headpose(yaw, pitch, roll, False)
+                try:
+                    await asyncio.wait_for(
+                        response_ready.wait(),
+                        timeout=max(0.2, THINKING_HEAD_TILT_STEP_SEC),
+                    )
+                except asyncio.TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Failed to animate thinking head pose.")
+        finally:
+            try:
+                await self.furhat.request_face_headpose(0.0, 0.0, 0.0, False)
+            except Exception:
+                logger.exception("Failed to reset thinking head pose.")
+
+    async def _stop_wait_feedback(
+        self,
+        response_ready: asyncio.Event,
+        thinking_task: asyncio.Task[None] | None,
+        head_tilt_task: asyncio.Task[None] | None,
+    ) -> None:
+        response_ready.set()
+        if thinking_task and not thinking_task.done():
+            thinking_task.cancel()
+            try:
+                await thinking_task
+            except asyncio.CancelledError:
+                pass
+        if head_tilt_task:
+            try:
+                await asyncio.wait_for(head_tilt_task, timeout=2.0)
+            except asyncio.TimeoutError:
+                head_tilt_task.cancel()
+                try:
+                    await head_tilt_task
+                except asyncio.CancelledError:
+                    pass
+
+    def _notify_speech_trim(
+        self,
+        reasons: set[str],
+        *,
+        original_chunk_chars: int,
+        emitted_chunk_chars: int,
+    ) -> None:
+        reason_text = ", ".join(sorted(reasons))
+        logger.warning(
+            "Speech output trimmed by %s: original_chunk_chars=%s emitted_chunk_chars=%s",
+            reason_text,
+            original_chunk_chars,
+            emitted_chunk_chars,
+        )
+        self._notify("speech output trimmed by limits")
+
+    def _trim_stream_chunk_for_speech(
+        self,
+        raw_chunk: str,
+        spoken_chunks: list[str],
+    ) -> tuple[str, bool, set[str]]:
+        cleaned_chunk = text.sanitize_for_speech(raw_chunk).strip()
+        if not cleaned_chunk:
+            return "", False, set()
+
+        speech_settings = text.get_speech_settings()
+        max_sentences = int(speech_settings.get("max_sentences", 0) or 0)
+        max_chars = int(speech_settings.get("max_chars", 0) or 0)
+
+        if max_sentences > 0 and len(spoken_chunks) >= max_sentences:
+            return "", True, {"max sentences"}
+
+        current_spoken = " ".join(spoken_chunks).strip()
+        if max_chars > 0:
+            remaining = max_chars - len(current_spoken) - (1 if current_spoken else 0)
+            if remaining <= 0:
+                return "", True, {"max chars"}
+            if len(cleaned_chunk) > remaining:
+                trimmed = cleaned_chunk[:remaining].rstrip()
+                shorter = trimmed.rsplit(" ", 1)[0].rstrip() if " " in trimmed else trimmed
+                if shorter:
+                    trimmed = shorter
+                trimmed = trimmed.rstrip(". ,;:")
+                cleaned_chunk = f"{trimmed}..." if trimmed else "..."
+                return cleaned_chunk, True, {"max chars"}
+
+        return cleaned_chunk, False, set()
+
+    async def _generate_and_speak_streamed_response(
+        self,
+        llm_prompt: str,
+        *,
+        session_id: int,
+        response_ready: asyncio.Event,
+        thinking_task: asyncio.Task[None] | None,
+        head_tilt_task: asyncio.Task[None] | None,
+    ) -> tuple[str, str]:
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
+
+        def _queue_put(kind: str, payload: object) -> bool:
+            if loop.is_closed():
+                return False
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, (kind, payload))
+            except RuntimeError:
+                return False
+            return True
+
+        def worker() -> None:
+            try:
+                for chunk in Ollama.get_response_by_punctuation(llm_prompt):
+                    if not _queue_put("chunk", chunk):
+                        return
+            except Exception as exc:
+                _queue_put("error", exc)
+            finally:
+                _queue_put("done", None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        raw_chunks: list[str] = []
+        spoken_chunks: list[str] = []
+        suppress_output = False
+        trim_notified = False
+
+        while True:
+            try:
+                kind, payload = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=OLLAMA_RESPONSE_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("LLM request timed out.")
+                self._notify("llm timeout")
+                return " ".join(spoken_chunks).strip(), "llm timeout"
+
+            if kind == "done":
+                break
+            if kind == "error":
+                exc = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
+                logger.error(
+                    "LLM streaming request failed: %s",
+                    exc,
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
+                self._notify(f"llm error: {exc}")
+                return " ".join(spoken_chunks).strip(), str(exc)
+
+            raw_chunk = str(payload or "")
+            if not raw_chunk.strip():
+                continue
+            if self._is_session_cancelled(session_id):
+                return " ".join(spoken_chunks).strip(), "stopped"
+            raw_chunks.append(raw_chunk)
+
+            if suppress_output:
+                continue
+
+            speak_chunk, should_stop, trim_reasons = self._trim_stream_chunk_for_speech(
+                raw_chunk,
+                spoken_chunks,
+            )
+            if trim_reasons and not trim_notified:
+                self._notify_speech_trim(
+                    trim_reasons,
+                    original_chunk_chars=len(text.sanitize_for_speech(raw_chunk)),
+                    emitted_chunk_chars=len(speak_chunk),
+                )
+                trim_notified = True
+
+            if not speak_chunk:
+                if should_stop:
+                    suppress_output = True
+                continue
+
+            if not response_ready.is_set():
+                await self._stop_wait_feedback(response_ready, thinking_task, head_tilt_task)
+
+            speech_result = await self._speak_text_safe(speak_chunk, wait=True, timeout=None)
+            spoken_chunks.append(speak_chunk)
+            self.runtime_status.spoken = " ".join(spoken_chunks).strip()
+            if speech_result == "timeout":
+                return self.runtime_status.spoken, "speech timeout"
+            if should_stop:
+                suppress_output = True
+
+        completion_info = Ollama.get_last_completion_info()
+        if completion_info.get("truncated"):
+            finish_reason = str(completion_info.get("finish_reason") or "length")
+            self._notify(f"llm output hit max token limit ({finish_reason})")
+
+        return " ".join(spoken_chunks).strip(), ""
+
     async def on_listen_activate(self, *, channel: str = "desktop") -> None:
         self._capture_runtime_loop()
         logger.info("Listening...")
@@ -370,34 +658,42 @@ class RobotRuntime:
         logger.info("Not listening...")
         self._notify("listening stopped")
         self.runtime_status.listening = False
-        await self.furhat.request_listen_stop()
-
-        heard_text = ""
+        self.runtime_status.speech_session = True
+        handed_off_to_prompt = False
         try:
-            await asyncio.wait_for(
-                self.hear_end_event.wait(),
-                timeout=robot_config.END_SPEECH_TIMEOUT,
-            )
-            heard_text = self._event_text(self.recognized_text).strip()
-        except asyncio.TimeoutError:
-            heard_text = self._event_text(self.partial_text).strip()
+            logger.info("Listen stop requested; awaiting final recognition.")
+            await self.furhat.request_listen_stop()
 
-        self.runtime_status.heard = heard_text
-        logger.info("Heard: %s", heard_text if heard_text else "<empty>")
-        self._notify(f"heard: {heard_text if heard_text else '<empty>'}")
-        if heard_text:
-            await self.speak_from_prompt(
-                heard_text,
-                channel=self.pending_listen_channel,
-                source=self.pending_listen_source,
-            )
-        else:
-            self._record_empty_transcript(
-                channel=self.pending_listen_channel,
-                source=self.pending_listen_source,
-            )
-        self.pending_listen_channel = "desktop"
-        self.pending_listen_source = "listen"
+            heard_text = ""
+            try:
+                await asyncio.wait_for(
+                    self.hear_end_event.wait(),
+                    timeout=robot_config.END_SPEECH_TIMEOUT,
+                )
+                heard_text = self._event_text(self.recognized_text).strip()
+            except asyncio.TimeoutError:
+                heard_text = self._event_text(self.partial_text).strip()
+
+            self.runtime_status.heard = heard_text
+            logger.info("Heard: %s", heard_text if heard_text else "<empty>")
+            self._notify(f"heard: {heard_text if heard_text else '<empty>'}")
+            if heard_text:
+                handed_off_to_prompt = True
+                await self.speak_from_prompt(
+                    heard_text,
+                    channel=self.pending_listen_channel,
+                    source=self.pending_listen_source,
+                )
+            else:
+                self._record_empty_transcript(
+                    channel=self.pending_listen_channel,
+                    source=self.pending_listen_source,
+                )
+        finally:
+            if not handed_off_to_prompt:
+                self.runtime_status.speech_session = False
+            self.pending_listen_channel = "desktop"
+            self.pending_listen_source = "listen"
 
     async def on_partial(self, event: object) -> None:
         self.partial_text = self._event_text(event)
@@ -705,6 +1001,13 @@ class RobotRuntime:
         self.runtime_status.speech_session = True
         session_id = self._next_session_id()
         self.active_session_id = session_id
+        logger.info(
+            "Session %s start channel=%s source=%s prompt_chars=%s",
+            session_id,
+            channel,
+            source,
+            len(prompt or ""),
+        )
         turn = self._new_transcript_turn(
             channel=channel,
             source=source,
@@ -721,11 +1024,13 @@ class RobotRuntime:
 
             response_ready = asyncio.Event()
             thinking_task: asyncio.Task[None] | None = None
+            head_tilt_task: asyncio.Task[None] | None = None
             if SPEAK_THINKING and THINKING_PHRASES:
 
                 async def _maybe_think() -> None:
                     await asyncio.sleep(max(0.0, THINKING_DELAY_SEC))
                     while not response_ready.is_set() and not self._is_session_cancelled(session_id):
+                        logger.info("Session %s speaking thinking phrase.", session_id)
                         await self._speak_text_safe(
                             random.choice(THINKING_PHRASES),
                             wait=True,
@@ -737,11 +1042,21 @@ class RobotRuntime:
                         await asyncio.sleep(THINKING_REPEAT_SEC)
 
                 thinking_task = asyncio.create_task(_maybe_think())
+            if THINKING_HEAD_TILT_ENABLED:
+                head_tilt_task = asyncio.create_task(
+                    self._thinking_head_tilt_loop(response_ready, session_id)
+                )
 
             try:
+                logger.info("Session %s RAG retrieval start.", session_id)
                 context = await asyncio.wait_for(
                     asyncio.to_thread(retriever.retrieve_context, prompt),
                     timeout=RAG_RETRIEVAL_TIMEOUT,
+                )
+                logger.info(
+                    "Session %s RAG retrieval complete; context_chars=%s",
+                    session_id,
+                    len(context or ""),
                 )
             except asyncio.TimeoutError:
                 logger.warning("RAG retrieval timed out.")
@@ -761,58 +1076,69 @@ class RobotRuntime:
 
             try:
                 async with self.ollama_semaphore:
-                    say_text = await asyncio.wait_for(
-                        asyncio.to_thread(Ollama.get_full_response, llm_prompt),
-                        timeout=OLLAMA_RESPONSE_TIMEOUT,
+                    logger.info(
+                        "Session %s LLM request start provider=%s model=%s prompt_chars=%s context_chars=%s",
+                        session_id,
+                        Ollama.get_provider(),
+                        Ollama.get_model(),
+                        len(llm_prompt or ""),
+                        len(context or ""),
                     )
-            except asyncio.TimeoutError:
-                logger.warning("LLM request timed out.")
-                self._notify("llm timeout")
-                say_text = ""
-                error_text = "llm timeout"
+                    say_text, error_text = await self._generate_and_speak_streamed_response(
+                        llm_prompt,
+                        session_id=session_id,
+                        response_ready=response_ready,
+                        thinking_task=thinking_task,
+                        head_tilt_task=head_tilt_task,
+                    )
+                    logger.info(
+                        "Session %s LLM request complete; spoken_chars=%s",
+                        session_id,
+                        len(say_text or ""),
+                    )
             except Exception as exc:
                 logger.exception("LLM request failed")
                 self._notify(f"llm error: {exc}")
                 say_text = ""
                 error_text = str(exc)
             finally:
-                response_ready.set()
-                if thinking_task and not thinking_task.done():
-                    thinking_task.cancel()
-                    try:
-                        await thinking_task
-                    except asyncio.CancelledError:
-                        pass
+                await self._stop_wait_feedback(response_ready, thinking_task, head_tilt_task)
 
             if self._is_session_cancelled(session_id):
                 turn.status = "cancelled"
                 turn.error = "stopped"
                 return
 
-            if say_text:
-                say_text = text.shorten_for_speech(say_text)
-                say_text = text.sanitize_for_speech(say_text)
             if self._is_session_cancelled(session_id):
+                logger.info("Session %s cancelled before speech.", session_id)
                 turn.status = "cancelled"
                 turn.error = "stopped"
                 return
             if say_text:
                 self.runtime_status.spoken = say_text
                 turn.spoken_text = say_text
-                speech_result = await self._speak_text_safe(say_text, wait=True, timeout=None)
                 if self._is_session_cancelled(session_id):
+                    logger.info("Session %s cancelled during speech.", session_id)
                     turn.status = "cancelled"
                     turn.error = "stopped"
-                elif speech_result == "timeout":
+                elif error_text == "speech timeout":
+                    logger.warning("Session %s speech timed out.", session_id)
                     turn.status = "error"
                     turn.error = "speech timeout"
+                elif error_text:
+                    logger.warning("Session %s failed after partial speech: %s", session_id, error_text)
+                    turn.status = "error"
+                    turn.error = error_text
                 else:
+                    logger.info("Session %s completed successfully.", session_id)
                     turn.status = "completed"
                     self.last_completed_response = say_text
             elif error_text:
+                logger.warning("Session %s failed: %s", session_id, error_text)
                 turn.status = "error"
                 turn.error = error_text
             else:
+                logger.info("Session %s produced an empty response.", session_id)
                 turn.status = "empty"
         finally:
             if self.active_session_id == session_id:

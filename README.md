@@ -103,7 +103,7 @@ sequenceDiagram
 ```
 
 ## Configuration
-- `src/settings.json` stores IP, provider, model, temperature, external API settings, listen, voice, and character settings.
+- `src/settings.json` stores the persisted app settings, including LLM, chat history, speech, listen, voice, RAG, web booth, runtime, and character settings.
 - `src/Furhat/settings.json` is still read as a legacy fallback if the canonical file is missing.
 - `data/demo_presets.json` stores optional public web prompt presets, with `global` presets and per-character overrides by `char_id`.
 - `src/Furhat/Ollama/config.py` sets the default model name.
@@ -120,12 +120,36 @@ sequenceDiagram
 - `RAG_FORCE_REFRESH=1` to force re-download on every run.
 
 ### External API setup
-The desktop `Settings` tab now supports:
+The desktop `Settings` page now supports grouped sections for:
+- `LLM`
+- `Chat History & Limits`
+- `Speech Output`
+- `Listen`
+- `Voice`
+- `RAG`
+- `Web Booth`
+- `Connection & Runtime`
+
+The `LLM` section supports:
 - `provider`: `ollama` or `openai_compatible`
 - `api_base_url`: for example `https://api.openai.com/v1` or another compatible endpoint
 - `api_key`: optional if you supply `LLM_API_KEY` or `OPENAI_API_KEY`
 
 `Refresh` under the model selector will query the active provider's models endpoint.
+
+Apply behavior:
+- Most chat, speech, listen, history, and public-web input settings apply on the next interaction after `Apply settings`.
+- `web.enabled` and `web.port` are persisted immediately but require an app restart to change the running web server.
+- `rag.embed_model`, `rag.chunk_size`, `rag.chunk_overlap`, and `rag.refresh_days` are persisted immediately but require a RAG rebuild to change indexed content.
+
+Use standard text chat-completions models for remote inference. Recommended
+OpenRouter/OpenAI-compatible models for this app:
+- `openai/gpt-5-mini`
+- `openai/gpt-4.1-mini`
+
+Reasoning-style remote models such as the `o1`, `o3`, and `o4` families are
+not supported in the current speech pipeline because they can return reasoning
+metadata without assistant text.
 
 ## Web control (optional)
 The app starts a lightweight web server for public booth interaction:
@@ -161,6 +185,17 @@ Run these before release or after significant refactors:
 ```bash
 python scripts/smoke_source.py
 python -m unittest discover -s tests -v
+```
+
+### Live external API checks
+If you want to verify the real saved remote API settings and key on your machine,
+run the opt-in live integration test. It reads the external provider config from
+`%LOCALAPPDATA%\Furhat-Realtime\settings.json` and does not store the key in the repo.
+
+Windows PowerShell:
+```powershell
+$env:RUN_LIVE_EXTERNAL_API_TESTS=1
+python -m unittest tests.test_chatbot_live_external -v
 ```
 
 ## Validation Before Release

@@ -15,7 +15,7 @@ from .support import build_web_urls
 from .views.character import build_character_view
 from .views.controls import build_controls_view
 from .views.logs import build_logs_view
-from .views.settings import build_settings_view
+from .views.settings import build_operator_settings_view, build_settings_view
 from .views.system import build_system_view
 
 
@@ -207,34 +207,60 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     )
     robot_state_label.pack(side="left", padx=(0, 12))
     ollama_state_label.pack(side="left")
+    admin_button = tk.Button(
+        status_frame,
+        text="Admin Tools",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#cbd5e1",
+        activebackground="#94a3b8",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=8,
+        pady=2,
+    )
+    admin_button.pack(side="right")
 
     main_frame = tk.Frame(canvas, bg="#0f172a")
     notebook = ttk.Notebook(main_frame, style="Furhat.TNotebook")
     controls_tab = tk.Frame(notebook, bg="#0f172a")
     character_tab = tk.Frame(notebook, bg="#0f172a")
     settings_tab = tk.Frame(notebook, bg="#0f172a")
-    system_tab = tk.Frame(notebook, bg="#0f172a")
-    logs_tab = tk.Frame(notebook, bg="#0f172a")
-    notebook.add(controls_tab, text="Controls")
-    notebook.add(character_tab, text="Character & RAG")
+    notebook.add(controls_tab, text="Operate")
+    notebook.add(character_tab, text="Character")
     notebook.add(settings_tab, text="Settings")
-    notebook.add(system_tab, text="System")
-    notebook.add(logs_tab, text="Logs")
 
-    web_port = int(os.getenv("WEB_PORT", "7860"))
+    web_port = int(settings.web.port)
     local_ip = _get_local_ip()
     web_urls = build_web_urls(web_port, local_ip)
     validation_dir = paths.get_app_root() / "build" / "validation"
+
+    admin_window = tk.Toplevel(root)
+    admin_window.title("Admin Tools")
+    admin_window.minsize(980, 700)
+    admin_window.configure(bg="#0f172a")
+    admin_window.withdraw()
+    admin_window.transient(root)
+    admin_notebook = ttk.Notebook(admin_window, style="Furhat.TNotebook")
+    admin_settings_tab = tk.Frame(admin_notebook, bg="#0f172a")
+    admin_system_tab = tk.Frame(admin_notebook, bg="#0f172a")
+    admin_logs_tab = tk.Frame(admin_notebook, bg="#0f172a")
+    admin_notebook.add(admin_settings_tab, text="Advanced Settings")
+    admin_notebook.add(admin_system_tab, text="System")
+    admin_notebook.add(admin_logs_tab, text="Logs")
+    admin_notebook.pack(fill="both", expand=True, padx=12, pady=12)
+    admin_settings_scroll_host, admin_settings_scroll_parent = _make_scrollable_tab(admin_settings_tab, admin_window)
+    admin_system_scroll_host, admin_system_scroll_parent = _make_scrollable_tab(admin_system_tab, admin_window)
+    admin_logs_scroll_host, admin_logs_scroll_parent = _make_scrollable_tab(admin_logs_tab, admin_window)
+
     settings_scroll_host, settings_scroll_parent = _make_scrollable_tab(settings_tab, root)
-    system_scroll_host, system_scroll_parent = _make_scrollable_tab(system_tab, root)
-    logs_scroll_host, logs_scroll_parent = _make_scrollable_tab(logs_tab, root)
     controls_view = build_controls_view(controls_tab)
     character_view = build_character_view(
         character_tab,
         character_path=settings.character_path,
     )
     settings_view = build_settings_view(
-        settings_scroll_parent,
+        admin_settings_scroll_parent,
         provider=settings.provider,
         api_base_url=settings.api_base_url,
         api_key=settings.api_key,
@@ -244,19 +270,36 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         local_ip_text=f"Local IP: {local_ip}:{web_port}",
         listen_settings=settings.listen.to_dict(),
         voice_settings=settings.voice.to_dict(),
+        chat_settings=settings.chat.to_dict(),
+        speech_settings=settings.speech.to_dict(),
+        rag_settings=settings.rag.to_dict(),
+        web_settings=settings.web.to_dict(),
+        runtime_settings=settings.runtime.to_dict(),
     )
-    system_view = build_system_view(system_scroll_parent, web_urls=web_urls)
-    logs_view = build_logs_view(logs_scroll_parent)
+    operator_settings_view = build_operator_settings_view(
+        settings_scroll_parent,
+        shared=settings_view,
+        local_ip_text=f"Local IP: {local_ip}:{web_port}",
+    )
+    system_view = build_system_view(admin_system_scroll_parent, web_urls=web_urls)
+    logs_view = build_logs_view(admin_logs_scroll_parent)
 
     controls_view.frame.pack(fill="both", expand=True)
     character_view.frame.pack(fill="both", expand=True)
     settings_scroll_host.pack(fill="both", expand=True)
+    operator_settings_view.frame.pack(fill="both", expand=True)
+    admin_settings_scroll_host.pack(fill="both", expand=True)
     settings_view.frame.pack(fill="both", expand=True)
-    system_scroll_host.pack(fill="both", expand=True)
+    admin_system_scroll_host.pack(fill="both", expand=True)
     system_view.frame.pack(fill="both", expand=True)
-    logs_scroll_host.pack(fill="both", expand=True)
+    admin_logs_scroll_host.pack(fill="both", expand=True)
     logs_view.frame.pack(fill="both", expand=True)
     notebook.pack(fill="both", expand=True)
+
+    def _hide_admin_window() -> None:
+        admin_window.withdraw()
+
+    admin_window.protocol("WM_DELETE_WINDOW", _hide_admin_window)
 
     title_id = canvas.create_window(0, 0, anchor="n", window=title, width=320, height=36)
     subtitle_id = canvas.create_window(0, 0, anchor="n", window=subtitle, width=360, height=24)
@@ -283,6 +326,7 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         ollama_state_label=ollama_state_label,
         main_frame=main_frame,
         notebook=notebook,
+        admin_button=admin_button,
     )
     state = UIState(
         shell=shell,
@@ -293,7 +337,10 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
         logs=logs_view,
         web_urls=web_urls,
         validation_dir=validation_dir,
+        operator_settings=operator_settings_view,
+        admin_window=admin_window,
     )
+    root._furhat_state = state  # type: ignore[attr-defined]
     actions = UIActions(state)
     actions.bind()
     actions.initialize()

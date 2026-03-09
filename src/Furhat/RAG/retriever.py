@@ -7,11 +7,12 @@ import pickle
 from pathlib import Path
 from typing import List, Optional
 
-from .config import EMBED_MODEL, INDEX_PATH, MAX_CONTEXT_CHARS, TOP_K
+from . import config as rag_config
 from .embeddings import embed_text
 
 
 logger = logging.getLogger(__name__)
+INDEX_PATH = rag_config.INDEX_PATH
 
 
 @dataclass
@@ -33,7 +34,7 @@ class RagIndex:
     ) -> None:
         self.embeddings = embeddings
         self.entries = entries
-        self.model = model or EMBED_MODEL
+        self.model = model or rag_config.EMBED_MODEL
         if norms is None:
             self.norms = [math.sqrt(sum(v * v for v in vec)) for vec in embeddings]
         else:
@@ -58,9 +59,10 @@ class RagIndex:
         model = payload.get("model")
         return cls(embeddings=embeddings, entries=entries, norms=norms, model=model)
 
-    def retrieve(self, query: str, k: int = TOP_K) -> List[RagEntry]:
+    def retrieve(self, query: str, k: int | None = None) -> List[RagEntry]:
         if not query.strip() or not self.embeddings:
             return []
+        k = rag_config.TOP_K if k is None else k
         query_vec = embed_text(query, self.model)
         qnorm = math.sqrt(sum(v * v for v in query_vec)) or 1.0
         scored: List[tuple[float, int]] = []
@@ -82,11 +84,11 @@ def get_index() -> Optional[RagIndex]:
     if _INDEX_CHECKED:
         return _INDEX
     _INDEX_CHECKED = True
-    if not INDEX_PATH.exists():
-        logger.info("RAG index not found at %s", INDEX_PATH)
+    if not rag_config.INDEX_PATH.exists():
+        logger.info("RAG index not found at %s", rag_config.INDEX_PATH)
         return None
     try:
-        _INDEX = RagIndex.load(INDEX_PATH)
+        _INDEX = RagIndex.load(rag_config.INDEX_PATH)
     except Exception as exc:
         logger.warning("Failed to load RAG index: %s", exc)
         return None
@@ -100,13 +102,20 @@ def reload_index() -> Optional[RagIndex]:
     return get_index()
 
 def set_index_path(path: Path) -> None:
-    global INDEX_PATH, _INDEX, _INDEX_CHECKED
-    INDEX_PATH = Path(path)
+    global _INDEX, _INDEX_CHECKED, INDEX_PATH
+    rag_config.INDEX_PATH = Path(path)
+    INDEX_PATH = rag_config.INDEX_PATH
     _INDEX = None
     _INDEX_CHECKED = False
 
 
-def retrieve_context(query: str, k: int = TOP_K, max_chars: int = MAX_CONTEXT_CHARS) -> str:
+def apply_settings(*, top_k: int | None = None, max_context_chars: int | None = None) -> None:
+    rag_config.apply_settings(top_k=top_k, max_context_chars=max_context_chars)
+
+
+def retrieve_context(query: str, k: int | None = None, max_chars: int | None = None) -> str:
+    k = rag_config.TOP_K if k is None else k
+    max_chars = rag_config.MAX_CONTEXT_CHARS if max_chars is None else max_chars
     index = get_index()
     if index is None:
         return ""

@@ -111,6 +111,26 @@ def build_transcript_summary(
     }
 
 
+def filter_model_names(models: Iterable[str], query: str) -> list[str]:
+    items = [str(model) for model in models]
+    needle = str(query).strip().lower()
+    if not needle:
+        return items
+    return [model for model in items if needle in model.lower()]
+
+
+def format_model_results_status(total_models: int, visible_models: int) -> str:
+    total = max(0, int(total_models))
+    visible = max(0, int(visible_models))
+    if total == 0:
+        return "No fetched models yet"
+    if visible == 0:
+        return "0 matches"
+    if visible == total:
+        return f"{total} models"
+    return f"{visible} of {total} models"
+
+
 def write_transcript_export(
     output_dir: Path,
     transcript_rows: Iterable[Mapping[str, object]],

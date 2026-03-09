@@ -111,6 +111,23 @@ class FakeFurhatClient:
             }
         )
 
+    async def request_face_headpose(
+        self,
+        yaw: float,
+        pitch: float,
+        roll: float,
+        relative: bool,
+    ) -> None:
+        self.calls.append(
+            {
+                "name": "request_face_headpose",
+                "yaw": yaw,
+                "pitch": pitch,
+                "roll": roll,
+                "relative": relative,
+            }
+        )
+
     def calls_named(self, name: str) -> list[dict[str, Any]]:
         return [call for call in self.calls if call.get("name") == name]
 

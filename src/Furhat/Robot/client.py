@@ -47,6 +47,14 @@ class FurhatClientProtocol(Protocol):
 
     async def request_set_voice_parameters(self, *, rate: float, volume: float) -> None: ...
 
+    async def request_face_headpose(
+        self,
+        yaw: float,
+        pitch: float,
+        roll: float,
+        relative: bool,
+    ) -> None: ...
+
 
 FurhatClientFactory: TypeAlias = Callable[[str], FurhatClientProtocol]
 

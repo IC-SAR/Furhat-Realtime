@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
+from .. import settings_store
 from .runtime import runtime
 
 
@@ -154,6 +155,10 @@ async def speak_from_prompt(
 
 async def reconnect() -> None:
     await runtime.reconnect()
+
+
+def apply_behavior_settings(settings: settings_store.AppSettings) -> None:
+    runtime.apply_behavior_settings(settings)
 
 
 def __getattr__(name: str) -> object:

@@ -15,9 +15,19 @@ from .. import paths, presets_store, settings_store
 from ..Character import loader as character_loader
 from ..Ollama import chatbot
 from ..Robot import robot
-from ..settings_store import AppSettings, ListenSettings, VoiceSettings
+from ..Web import server as web_server
+from ..settings_store import (
+    AppSettings,
+    ChatSettings,
+    ListenSettings,
+    RagSettings,
+    RuntimeSettings,
+    SpeechSettings,
+    VoiceSettings,
+    WebSettings,
+)
 from . import support
-from .state import UIState
+from .state import SettingsView, UIState
 
 
 class UIActions:
@@ -27,6 +37,14 @@ class UIActions:
         self._preset_loaded_text = ""
         self._preset_loaded_source_text = ""
         self._preset_loaded_mtime: float | None = None
+        self._available_models: list[str] = []
+        self._visible_models_by_view: dict[int, list[str]] = {}
+
+    def _settings_views(self) -> list[SettingsView]:
+        views = [self.state.settings]
+        if self.state.operator_settings is not None:
+            views.append(self.state.operator_settings)
+        return views
 
     def bind(self) -> None:
         robot.set_log_callback(lambda message: self.state.root.after(0, self.handle_robot_log, message))
@@ -50,10 +68,30 @@ class UIActions:
             self.state.controls.repeat_last_button.configure(command=self.repeat_last_response)
         if self.state.controls.replay_greeting_button is not None:
             self.state.controls.replay_greeting_button.configure(command=self.replay_greeting)
-        self.state.settings.apply_button.configure(command=self.apply_settings)
-        self.state.settings.reconnect_button.configure(command=self.reconnect_robot)
+        for settings_view in self._settings_views():
+            settings_view.apply_button.configure(command=self.apply_settings)
+            settings_view.reconnect_button.configure(command=self.reconnect_robot)
+            settings_view.refresh_models_button.configure(command=self.refresh_model_list)
+            if settings_view.model_search_value is not None:
+                settings_view.model_search_value.trace_add(
+                    "write",
+                    lambda *_args, view=settings_view: self._on_model_search_changed(view),
+                )
+            settings_view.model_value.trace_add("write", self._on_model_value_changed)
+            if settings_view.model_listbox is not None:
+                settings_view.model_listbox.bind(
+                    "<<ListboxSelect>>",
+                    lambda _event, view=settings_view: self._on_model_list_select(view),
+                )
+                settings_view.model_listbox.bind(
+                    "<Double-Button-1>",
+                    lambda _event, view=settings_view: self._on_model_list_activate(view),
+                )
+                settings_view.model_listbox.bind(
+                    "<Return>",
+                    lambda _event, view=settings_view: self._on_model_list_activate(view),
+                )
         self.state.logs.clear_logs_button.configure(command=self.clear_logs)
-        self.state.settings.refresh_models_button.configure(command=self.refresh_model_list)
         self.state.character.refresh_char_button.configure(command=self.refresh_character_list)
         self.state.character.browse_char_button.configure(command=self.browse_character)
         self.state.character.load_char_button.configure(command=lambda: self.apply_character(False))
@@ -64,6 +102,8 @@ class UIActions:
         self.state.system.open_settings_button.configure(command=self.open_settings)
         self.state.system.open_web_button.configure(command=self.open_web_ui)
         self.state.system.copy_web_url_button.configure(command=self.copy_lan_url)
+        if self.state.shell.admin_button is not None:
+            self.state.shell.admin_button.configure(command=self.open_admin_tools)
         self.state.logs.export_diagnostics_button.configure(command=self.export_diagnostics)
         self.state.logs.open_validation_button.configure(command=self.open_validation_folder)
         if self.state.system.open_preset_button is not None:
@@ -248,17 +288,27 @@ class UIActions:
 
         if listening:
             self.state.set_base_status("listening...", "#fbbf24")
+            if self.state.controls.activity_var is not None:
+                self.state.controls.activity_var.set("Session status: Listening")
             return
         if speaking:
             self.state.set_base_status("speaking...", "#38bdf8")
+            if self.state.controls.activity_var is not None:
+                self.state.controls.activity_var.set("Session status: Speaking")
             return
         if speech_session:
             self.state.set_base_status("thinking...", "#38bdf8")
+            if self.state.controls.activity_var is not None:
+                self.state.controls.activity_var.set("Session status: Thinking")
             return
         if not connected and last_error:
             self.state.set_base_status("connection error", "#f87171")
+            if self.state.controls.activity_var is not None:
+                self.state.controls.activity_var.set("Session status: Connection issue")
             return
         self.state.set_base_status("idle", "#94a3b8")
+        if self.state.controls.activity_var is not None:
+            self.state.controls.activity_var.set("Session status: Ready")
 
     def refresh_runtime_state(self) -> None:
         status = robot.get_runtime_status()
@@ -326,7 +376,12 @@ class UIActions:
         self,
         snapshot: tuple[Path, str, float | None, presets_store.PresetFile | None, str] | None = None,
     ) -> None:
-        if self.state.system.preset_status_var is None and self.state.system.preset_preview_text is None:
+        if (
+            self.state.system.preset_status_var is None
+            and self.state.system.preset_preview_text is None
+            and self.state.character.preset_status_var is None
+            and self.state.character.preset_preview_text is None
+        ):
             return
 
         snapshot = snapshot or self._read_preset_snapshot()
@@ -334,8 +389,14 @@ class UIActions:
         if error:
             if self.state.system.preset_status_var is not None:
                 self.state.system.preset_status_var.set("Presets: invalid file")
+            if self.state.character.preset_status_var is not None:
+                self.state.character.preset_status_var.set("Presets: invalid file")
             self.state.set_system_text(
                 self.state.system.preset_preview_text,
+                f"Preset file is invalid.\n\n{error}",
+            )
+            self.state.set_system_text(
+                self.state.character.preset_preview_text,
                 f"Preset file is invalid.\n\n{error}",
             )
             return
@@ -347,8 +408,14 @@ class UIActions:
         )
         if self.state.system.preset_status_var is not None:
             self.state.system.preset_status_var.set(support.format_preset_summary(resolved))
+        if self.state.character.preset_status_var is not None:
+            self.state.character.preset_status_var.set(support.format_preset_summary(resolved))
         self.state.set_system_text(
             self.state.system.preset_preview_text,
+            support.build_preset_preview_text(resolved),
+        )
+        self.state.set_system_text(
+            self.state.character.preset_preview_text,
             support.build_preset_preview_text(resolved),
         )
 
@@ -646,6 +713,82 @@ class UIActions:
         except Exception:
             pass
 
+    def _set_model_results_status(self, view: SettingsView) -> None:
+        if view.model_results_status_var is None:
+            return
+        visible_models = self._visible_models_by_view.get(id(view), [])
+        view.model_results_status_var.set(
+            support.format_model_results_status(len(self._available_models), len(visible_models))
+        )
+
+    def _render_model_results(self, view: SettingsView) -> None:
+        listbox = view.model_listbox
+        if listbox is None:
+            return
+        visible_models = self._visible_models_by_view.get(id(view), [])
+        listbox.delete(0, "end")
+        for name in visible_models:
+            listbox.insert("end", name)
+        self._set_model_results_status(view)
+        self._sync_model_picker_selection(view)
+
+    def _sync_model_picker_selection(self, view: SettingsView) -> None:
+        listbox = view.model_listbox
+        if listbox is None:
+            return
+        listbox.selection_clear(0, "end")
+        current_model = view.model_value.get().strip()
+        if not current_model:
+            return
+        visible_models = self._visible_models_by_view.get(id(view), [])
+        try:
+            index = visible_models.index(current_model)
+        except ValueError:
+            return
+        listbox.selection_set(index)
+        listbox.activate(index)
+        listbox.see(index)
+
+    def _select_visible_model(self, view: SettingsView, index: int) -> None:
+        visible_models = self._visible_models_by_view.get(id(view), [])
+        if index < 0 or index >= len(visible_models):
+            return
+        selected_model = visible_models[index]
+        for settings_view in self._settings_views():
+            settings_view.model_value.set(selected_model)
+        for settings_view in self._settings_views():
+            self._sync_model_picker_selection(settings_view)
+
+    def _on_model_search_changed(self, view: SettingsView) -> None:
+        query = ""
+        if view.model_search_value is not None:
+            query = view.model_search_value.get()
+        self._visible_models_by_view[id(view)] = support.filter_model_names(self._available_models, query)
+        self._render_model_results(view)
+
+    def _on_model_value_changed(self, *_args: object) -> None:
+        for settings_view in self._settings_views():
+            self._sync_model_picker_selection(settings_view)
+
+    def _on_model_list_select(self, view: SettingsView) -> None:
+        listbox = view.model_listbox
+        if listbox is None:
+            return
+        selection = listbox.curselection()
+        if not selection:
+            return
+        self._select_visible_model(view, int(selection[0]))
+
+    def _on_model_list_activate(self, view: SettingsView) -> str | None:
+        listbox = view.model_listbox
+        if listbox is None:
+            return None
+        selection = listbox.curselection()
+        if not selection:
+            return None
+        self._select_visible_model(view, int(selection[0]))
+        return "break"
+
     def refresh_model_list(self) -> None:
         try:
             models = chatbot.list_models()
@@ -653,16 +796,18 @@ class UIActions:
             self.state.flash_status(f"model list error: {exc}", "#f87171", duration_ms=5000)
             self.state.set_ollama_state("offline", "#f87171")
             models = []
-        if not models:
-            models = [chatbot.get_model()]
         else:
             self.state.set_ollama_state(f"ok ({chatbot.get_provider_label()})", "#4ade80")
-
-        menu = self.state.settings.model_menu["menu"]
-        menu.delete(0, "end")
-        for name in models:
-            menu.add_command(label=name, command=lambda value=name: self.state.settings.model_value.set(value))
-        self.state.settings.model_options.set("Select model")
+        self._available_models = [str(name) for name in models]
+        for settings_view in self._settings_views():
+            query = ""
+            if settings_view.model_search_value is not None:
+                query = settings_view.model_search_value.get()
+            self._visible_models_by_view[id(settings_view)] = support.filter_model_names(
+                self._available_models,
+                query,
+            )
+            self._render_model_results(settings_view)
 
     def on_button_press(self, event: object) -> None:
         if isinstance(getattr(event, "widget", None), tk.Entry):
@@ -670,7 +815,7 @@ class UIActions:
         if not self.state.listen_button_enabled:
             return
         self.state.flash_status("listening...", "#fbbf24", duration_ms=1500)
-        self.state.controls.listen_button.configure(bg="#f59e0b")
+        self.state.controls.listen_button.configure(bg="#1d4ed8")
         self._run_coroutine(robot.on_listen_activate(channel="desktop"))
 
     def on_button_release(self, event: object) -> None:
@@ -679,7 +824,7 @@ class UIActions:
         if not self.state.listen_button_enabled:
             return
         self.state.flash_status("thinking...", "#38bdf8", duration_ms=1500)
-        self.state.controls.listen_button.configure(bg="#fbbf24")
+        self.state.controls.listen_button.configure(bg="#2563eb")
         self._run_coroutine(robot.on_listen_deactivate())
 
     def on_space_press(self, event: object) -> None:
@@ -707,6 +852,16 @@ class UIActions:
     def clear_context(self) -> None:
         chatbot.clear_messages()
         self.state.flash_status("context cleared", "#4ade80")
+
+    def open_admin_tools(self) -> None:
+        if self.state.admin_window is None:
+            return
+        self.state.admin_window.deiconify()
+        self.state.admin_window.lift()
+        try:
+            self.state.admin_window.focus_force()
+        except Exception:
+            pass
 
     def _normalize_preset_text(self, text: str) -> str:
         return str(text).replace("\r\n", "\n").rstrip("\n")
@@ -801,14 +956,278 @@ class UIActions:
             return
         self._update_preset_editor_state()
 
+    @staticmethod
+    def _parse_int_setting(
+        value: str,
+        label: str,
+        *,
+        minimum: int | None = None,
+        maximum: int | None = None,
+    ) -> int:
+        try:
+            parsed = int(str(value).strip())
+        except Exception as exc:
+            raise ValueError(f"{label} must be a whole number.") from exc
+        if minimum is not None and parsed < minimum:
+            comparator = ">=" if minimum == 0 else ">"
+            if minimum == 0:
+                raise ValueError(f"{label} must be {comparator} {minimum}.")
+            raise ValueError(f"{label} must be at least {minimum}.")
+        if maximum is not None and parsed > maximum:
+            raise ValueError(f"{label} must be at most {maximum}.")
+        return parsed
+
+    @staticmethod
+    def _parse_float_setting(
+        value: str,
+        label: str,
+        *,
+        minimum: float | None = None,
+        maximum: float | None = None,
+    ) -> float:
+        try:
+            parsed = float(str(value).strip())
+        except Exception as exc:
+            raise ValueError(f"{label} must be a number.") from exc
+        if minimum is not None and parsed < minimum:
+            if minimum == 0:
+                raise ValueError(f"{label} must be >= 0.")
+            raise ValueError(f"{label} must be at least {minimum}.")
+        if maximum is not None and parsed > maximum:
+            raise ValueError(f"{label} must be at most {maximum}.")
+        return parsed
+
+    @staticmethod
+    def _read_string_var(variable: object, default: str) -> str:
+        if variable is None or not hasattr(variable, "get"):
+            return default
+        value = variable.get()
+        return str(value).strip()
+
+    @staticmethod
+    def _read_bool_var(variable: object, default: bool) -> bool:
+        if variable is None or not hasattr(variable, "get"):
+            return default
+        return bool(variable.get())
+
+    def _read_thinking_phrases(self, defaults: list[str]) -> list[str]:
+        widget = self.state.settings.speech_thinking_phrases_text
+        if widget is None:
+            return list(defaults)
+        raw = widget.get("1.0", "end-1c").replace("\r\n", "\n")
+        values = [line.strip() for line in raw.split("\n") if line.strip()]
+        return values or list(defaults)
+
+    @staticmethod
+    def _settings_change_notes(
+        previous: AppSettings,
+        current: AppSettings,
+    ) -> list[str]:
+        notes: list[str] = []
+        if (
+            previous.web.enabled != current.web.enabled
+            or previous.web.port != current.web.port
+        ):
+            notes.append("restart required for web enabled/port")
+        if (
+            previous.rag.embed_model != current.rag.embed_model
+            or previous.rag.chunk_size != current.rag.chunk_size
+            or previous.rag.chunk_overlap != current.rag.chunk_overlap
+            or previous.rag.refresh_days != current.rag.refresh_days
+        ):
+            notes.append("RAG rebuild required for embed/chunk changes")
+        return notes
+
     def _build_settings(self) -> AppSettings:
+        defaults = settings_store.load_settings()
+
+        provider = self._read_string_var(
+            self.state.settings.provider_value,
+            defaults.provider,
+        ) or defaults.provider
+        api_base_url = self._read_string_var(
+            self.state.settings.api_base_url_value,
+            defaults.api_base_url,
+        )
+        api_key = self._read_string_var(
+            self.state.settings.api_key_value,
+            defaults.api_key,
+        )
+        model = self.state.settings.model_value.get().strip() or defaults.model
+        if not model:
+            raise ValueError("Model cannot be empty.")
+
+        chat = ChatSettings(
+            max_tokens=self._parse_int_setting(
+                self.state.settings.chat_max_tokens_value.get(),
+                "Max tokens",
+                minimum=0,
+            ),
+            max_history_messages=self._parse_int_setting(
+                self.state.settings.chat_max_history_messages_value.get(),
+                "Max history messages",
+                minimum=0,
+            ),
+            max_history_chars=self._parse_int_setting(
+                self.state.settings.chat_max_history_chars_value.get(),
+                "Max history chars",
+                minimum=0,
+            ),
+            external_api_timeout=self._parse_float_setting(
+                self.state.settings.chat_external_api_timeout_value.get(),
+                "External API timeout",
+                minimum=0.1,
+            ),
+            llm_response_timeout=self._parse_float_setting(
+                self.state.settings.chat_llm_response_timeout_value.get(),
+                "LLM response timeout",
+                minimum=0.1,
+            ),
+        )
+
+        speech = SpeechSettings(
+            max_sentences=self._parse_int_setting(
+                self.state.settings.speech_max_sentences_value.get(),
+                "Max spoken sentences",
+                minimum=0,
+            ),
+            max_chars=self._parse_int_setting(
+                self.state.settings.speech_max_chars_value.get(),
+                "Max spoken chars",
+                minimum=0,
+            ),
+            speak_thinking=self._read_bool_var(
+                self.state.settings.speech_speak_thinking_value,
+                defaults.speech.speak_thinking,
+            ),
+            thinking_phrases=self._read_thinking_phrases(defaults.speech.thinking_phrases),
+            thinking_delay_sec=self._parse_float_setting(
+                self.state.settings.speech_thinking_delay_value.get(),
+                "Thinking delay",
+                minimum=0.0,
+            ),
+            thinking_repeat_sec=self._parse_float_setting(
+                self.state.settings.speech_thinking_repeat_value.get(),
+                "Thinking repeat interval",
+                minimum=0.1,
+            ),
+            thinking_wait_timeout=self._parse_float_setting(
+                self.state.settings.speech_thinking_wait_timeout_value.get(),
+                "Thinking phrase timeout",
+                minimum=0.1,
+            ),
+            end_speech_timeout=self._parse_float_setting(
+                self.state.settings.speech_end_speech_timeout_value.get(),
+                "End speech timeout",
+                minimum=0.1,
+            ),
+            user_letgo_debouncer_seconds=self._parse_float_setting(
+                self.state.settings.speech_user_letgo_debouncer_value.get(),
+                "Release debounce",
+                minimum=0.0,
+            ),
+            speech_timeout_base_sec=self._parse_float_setting(
+                self.state.settings.speech_timeout_base_value.get(),
+                "Speech timeout base",
+                minimum=0.1,
+            ),
+            speech_timeout_per_char_sec=self._parse_float_setting(
+                self.state.settings.speech_timeout_per_char_value.get(),
+                "Speech timeout per char",
+                minimum=0.0,
+            ),
+            speech_timeout_min_sec=self._parse_float_setting(
+                self.state.settings.speech_timeout_min_value.get(),
+                "Speech timeout min",
+                minimum=0.1,
+            ),
+            speech_timeout_max_sec=self._parse_float_setting(
+                self.state.settings.speech_timeout_max_value.get(),
+                "Speech timeout max",
+                minimum=0.1,
+            ),
+        )
+        if speech.speech_timeout_min_sec > speech.speech_timeout_max_sec:
+            raise ValueError("Speech timeout min must be <= speech timeout max.")
+
+        rag = RagSettings(
+            embed_model=self._read_string_var(
+                self.state.settings.rag_embed_model_value,
+                defaults.rag.embed_model,
+            )
+            or defaults.rag.embed_model,
+            top_k=self._parse_int_setting(
+                self.state.settings.rag_top_k_value.get(),
+                "Top-K results",
+                minimum=1,
+            ),
+            max_context_chars=self._parse_int_setting(
+                self.state.settings.rag_max_context_chars_value.get(),
+                "Max context chars",
+                minimum=0,
+            ),
+            chunk_size=self._parse_int_setting(
+                self.state.settings.rag_chunk_size_value.get(),
+                "Chunk size",
+                minimum=1,
+            ),
+            chunk_overlap=self._parse_int_setting(
+                self.state.settings.rag_chunk_overlap_value.get(),
+                "Chunk overlap",
+                minimum=0,
+            ),
+            retrieval_timeout=self._parse_float_setting(
+                self.state.settings.rag_retrieval_timeout_value.get(),
+                "Retrieval timeout",
+                minimum=0.1,
+            ),
+            refresh_days=self._parse_float_setting(
+                self.state.settings.rag_refresh_days_value.get(),
+                "Refresh days",
+                minimum=0.0,
+            ),
+        )
+        if rag.chunk_overlap >= rag.chunk_size:
+            raise ValueError("Chunk overlap must be smaller than chunk size.")
+
+        web = WebSettings(
+            enabled=self._read_bool_var(
+                self.state.settings.web_enabled_value,
+                defaults.web.enabled,
+            ),
+            port=self._parse_int_setting(
+                self.state.settings.web_port_value.get(),
+                "Web port",
+                minimum=1,
+                maximum=65535,
+            ),
+            public_max_text_chars=self._parse_int_setting(
+                self.state.settings.web_public_max_text_chars_value.get(),
+                "Public max text chars",
+                minimum=0,
+            ),
+            public_cooldown_sec=self._parse_float_setting(
+                self.state.settings.web_public_cooldown_sec_value.get(),
+                "Public cooldown",
+                minimum=0.0,
+            ),
+        )
+
+        runtime = RuntimeSettings(
+            disconnect_timeout=self._parse_float_setting(
+                self.state.settings.runtime_disconnect_timeout_value.get(),
+                "Disconnect timeout",
+                minimum=0.1,
+            )
+        )
+
         return AppSettings(
-            provider=(self.state.settings.provider_value.get().strip() if self.state.settings.provider_value else chatbot.get_provider()),
-            api_base_url=(self.state.settings.api_base_url_value.get().strip() if self.state.settings.api_base_url_value else chatbot.get_api_base_url()),
-            api_key=(self.state.settings.api_key_value.get().strip() if self.state.settings.api_key_value else chatbot.get_api_key()),
-            model=self.state.settings.model_value.get().strip() or chatbot.get_model(),
+            provider=provider,
+            api_base_url=api_base_url,
+            api_key=api_key,
+            model=model,
             temperature=float(self.state.settings.temperature_value.get()),
-            ip=self.state.settings.ip_value.get().strip() or robot.get_ip(),
+            ip=self.state.settings.ip_value.get().strip() or defaults.ip,
             character_path=self.state.character.character_path_value.get().strip(),
             listen=ListenSettings(
                 partial=self.state.settings.listen_partial_value.get(),
@@ -823,7 +1242,74 @@ class UIActions:
                 rate=float(self.state.settings.voice_rate_value.get()),
                 volume=float(self.state.settings.voice_volume_value.get()),
             ),
+            chat=chat,
+            speech=speech,
+            rag=rag,
+            web=web,
+            runtime=runtime,
         )
+
+    def _apply_live_settings(self, settings: AppSettings) -> None:
+        chatbot.load_saved_settings(
+            settings.model,
+            settings.temperature,
+            settings.provider,
+            settings.api_base_url,
+            settings.api_key,
+        )
+        chatbot.configure_chat_settings(
+            max_tokens=settings.chat.max_tokens,
+            max_history_messages=settings.chat.max_history_messages,
+            max_history_chars=settings.chat.max_history_chars,
+            external_api_timeout=settings.chat.external_api_timeout,
+        )
+        robot.set_ip(settings.ip)
+        robot.set_listen_settings(
+            partial=settings.listen.partial,
+            concat=settings.listen.concat,
+            stop_no_speech=settings.listen.stop_no_speech,
+            stop_user_end=settings.listen.stop_user_end,
+            stop_robot_start=settings.listen.stop_robot_start,
+            interrupt_speech=settings.listen.interrupt_speech,
+        )
+        robot.set_voice_settings(
+            settings.voice.name,
+            settings.voice.rate,
+            settings.voice.volume,
+        )
+        robot.apply_behavior_settings(settings)
+        web_server.apply_settings(
+            public_max_text_chars=settings.web.public_max_text_chars,
+            public_cooldown_sec=settings.web.public_cooldown_sec,
+        )
+
+    def _complete_settings_apply(
+        self,
+        settings: AppSettings,
+        status_message: str,
+        *,
+        notes_present: bool,
+    ) -> None:
+        try:
+            self._apply_live_settings(settings)
+            settings_store.save_settings(settings)
+        except Exception as exc:
+            self._finish_status_update(
+                f"settings error: {exc}",
+                "#f87171",
+                duration_ms=5000,
+            )
+            self._finish_apply_settings()
+            return
+
+        self._run_coroutine(robot.apply_voice_settings())
+        self.refresh_model_list()
+        self._finish_status_update(
+            status_message,
+            "#4ade80",
+            duration_ms=5000 if notes_present else 3000,
+        )
+        self._finish_apply_settings()
 
     def apply_settings(self) -> None:
         if self.state.applying_settings:
@@ -832,45 +1318,15 @@ class UIActions:
         self.state.set_apply_enabled(False)
         self.state.set_status("applying settings...", "#38bdf8")
 
+        previous_settings = settings_store.load_settings()
         previous_provider = chatbot.get_provider()
         previous_model = chatbot.get_model()
         previous_api_base_url = chatbot.get_api_base_url()
         previous_api_key = chatbot.get_api_key()
-        new_provider = (
-            self.state.settings.provider_value.get().strip()
-            if self.state.settings.provider_value is not None
-            else previous_provider
-        )
-        new_api_base_url = (
-            self.state.settings.api_base_url_value.get().strip()
-            if self.state.settings.api_base_url_value is not None
-            else previous_api_base_url
-        )
-        new_api_key = (
-            self.state.settings.api_key_value.get().strip()
-            if self.state.settings.api_key_value is not None
-            else previous_api_key
-        )
+        previous_temperature = chatbot.get_temperature()
 
         try:
-            chatbot.set_provider(new_provider)
-            chatbot.set_api_base_url(new_api_base_url)
-            chatbot.set_api_key(new_api_key)
-            chatbot.set_temperature(float(self.state.settings.temperature_value.get()))
-            robot.set_ip(self.state.settings.ip_value.get())
-            robot.set_listen_settings(
-                partial=self.state.settings.listen_partial_value.get(),
-                concat=self.state.settings.listen_concat_value.get(),
-                stop_no_speech=self.state.settings.listen_no_speech_value.get(),
-                stop_user_end=self.state.settings.listen_user_end_value.get(),
-                stop_robot_start=self.state.settings.listen_robot_start_value.get(),
-                interrupt_speech=self.state.settings.listen_interrupt_value.get(),
-            )
-            robot.set_voice_settings(
-                self.state.settings.voice_name_value.get(),
-                float(self.state.settings.voice_rate_value.get()),
-                float(self.state.settings.voice_volume_value.get()),
-            )
+            new_settings = self._build_settings()
         except Exception as exc:
             self.state.clear_status()
             self.state.flash_status(f"settings error: {exc}", "#f87171", duration_ms=5000)
@@ -878,22 +1334,17 @@ class UIActions:
             self.state.set_apply_enabled(True)
             return
 
-        self._run_coroutine(robot.apply_voice_settings())
-        self.save_settings()
-
-        new_model = self.state.settings.model_value.get().strip()
-        if not new_model:
-            self.state.clear_status()
-            self.state.flash_status("model is empty", "#f87171", duration_ms=5000)
-            self.state.applying_settings = False
-            self.state.set_apply_enabled(True)
-            return
+        status_message = "settings updated"
+        notes = self._settings_change_notes(previous_settings, new_settings)
+        if notes:
+            status_message = "settings updated | " + " | ".join(notes)
 
         model_needs_apply = (
-            new_model != previous_model
-            or new_provider != previous_provider
-            or new_api_base_url != previous_api_base_url
-            or new_api_key != previous_api_key
+            new_settings.model != previous_model
+            or new_settings.provider != previous_provider
+            or new_settings.api_base_url != previous_api_base_url
+            or new_settings.api_key != previous_api_key
+            or new_settings.temperature != previous_temperature
         )
 
         if model_needs_apply:
@@ -903,18 +1354,43 @@ class UIActions:
                     self.state.root.after(
                         0,
                         lambda: self.state.set_status(
-                            "downloading model..." if chatbot.is_ollama_provider() else "applying llm settings...",
+                            "downloading model..."
+                            if new_settings.provider == chatbot.PROVIDER_OLLAMA
+                            else "applying llm settings...",
                             "#38bdf8",
                         ),
                     )
-                    chatbot.set_model(new_model)
+                    chatbot.load_saved_settings(
+                        new_settings.model,
+                        new_settings.temperature,
+                        new_settings.provider,
+                        new_settings.api_base_url,
+                        new_settings.api_key,
+                    )
+                    chatbot.set_model(new_settings.model)
+                    chatbot.configure_chat_settings(
+                        max_tokens=new_settings.chat.max_tokens,
+                        max_history_messages=new_settings.chat.max_history_messages,
+                        max_history_chars=new_settings.chat.max_history_chars,
+                        external_api_timeout=new_settings.chat.external_api_timeout,
+                    )
                     chatbot.clear_messages()
-                    self.state.root.after(0, self.refresh_model_list)
                     self.state.root.after(
                         0,
-                        lambda: self._finish_status_update("settings updated", "#4ade80"),
+                        lambda: self._complete_settings_apply(
+                            new_settings,
+                            status_message,
+                            notes_present=bool(notes),
+                        ),
                     )
                 except Exception as exc:
+                    chatbot.load_saved_settings(
+                        previous_model,
+                        previous_temperature,
+                        previous_provider,
+                        previous_api_base_url,
+                        previous_api_key,
+                    )
                     self.state.root.after(
                         0,
                         lambda exc=exc: self._finish_status_update(
@@ -929,8 +1405,11 @@ class UIActions:
             threading.Thread(target=_apply_model, daemon=True).start()
             return
 
-        self._finish_status_update("settings updated", "#4ade80")
-        self._finish_apply_settings()
+        self._complete_settings_apply(
+            new_settings,
+            status_message,
+            notes_present=bool(notes),
+        )
 
     def _finish_status_update(
         self,
@@ -952,9 +1431,9 @@ class UIActions:
         self.state.set_robot_state("connecting...", "#fbbf24")
         self._run_coroutine(robot.reconnect())
 
-    def save_settings(self) -> None:
+    def save_settings(self, settings: AppSettings | None = None) -> None:
         try:
-            settings_store.save_settings(self._build_settings())
+            settings_store.save_settings(settings or self._build_settings())
         except Exception as exc:
             self.state.flash_status(f"settings save error: {exc}", "#f87171", duration_ms=5000)
 
@@ -971,6 +1450,12 @@ class UIActions:
             settings.provider,
             settings.api_base_url,
             settings.api_key,
+        )
+        chatbot.configure_chat_settings(
+            max_tokens=settings.chat.max_tokens,
+            max_history_messages=settings.chat.max_history_messages,
+            max_history_chars=settings.chat.max_history_chars,
+            external_api_timeout=settings.chat.external_api_timeout,
         )
         if self.state.settings.provider_value is not None:
             self.state.settings.provider_value.set(settings.provider)
@@ -993,6 +1478,106 @@ class UIActions:
         self.state.settings.voice_name_value.set(settings.voice.name)
         self.state.settings.voice_rate_value.set(float(settings.voice.rate))
         self.state.settings.voice_volume_value.set(float(settings.voice.volume))
+        if self.state.settings.chat_max_tokens_value is not None:
+            self.state.settings.chat_max_tokens_value.set(str(settings.chat.max_tokens))
+        if self.state.settings.chat_max_history_messages_value is not None:
+            self.state.settings.chat_max_history_messages_value.set(
+                str(settings.chat.max_history_messages)
+            )
+        if self.state.settings.chat_max_history_chars_value is not None:
+            self.state.settings.chat_max_history_chars_value.set(
+                str(settings.chat.max_history_chars)
+            )
+        if self.state.settings.chat_external_api_timeout_value is not None:
+            self.state.settings.chat_external_api_timeout_value.set(
+                str(settings.chat.external_api_timeout)
+            )
+        if self.state.settings.chat_llm_response_timeout_value is not None:
+            self.state.settings.chat_llm_response_timeout_value.set(
+                str(settings.chat.llm_response_timeout)
+            )
+        if self.state.settings.speech_max_sentences_value is not None:
+            self.state.settings.speech_max_sentences_value.set(str(settings.speech.max_sentences))
+        if self.state.settings.speech_max_chars_value is not None:
+            self.state.settings.speech_max_chars_value.set(str(settings.speech.max_chars))
+        if self.state.settings.speech_speak_thinking_value is not None:
+            self.state.settings.speech_speak_thinking_value.set(settings.speech.speak_thinking)
+        if self.state.settings.speech_thinking_phrases_text is not None:
+            self.state.settings.speech_thinking_phrases_text.delete("1.0", "end")
+            self.state.settings.speech_thinking_phrases_text.insert(
+                "1.0",
+                "\n".join(settings.speech.thinking_phrases),
+            )
+        if self.state.settings.speech_thinking_delay_value is not None:
+            self.state.settings.speech_thinking_delay_value.set(
+                str(settings.speech.thinking_delay_sec)
+            )
+        if self.state.settings.speech_thinking_repeat_value is not None:
+            self.state.settings.speech_thinking_repeat_value.set(
+                str(settings.speech.thinking_repeat_sec)
+            )
+        if self.state.settings.speech_thinking_wait_timeout_value is not None:
+            self.state.settings.speech_thinking_wait_timeout_value.set(
+                str(settings.speech.thinking_wait_timeout)
+            )
+        if self.state.settings.speech_end_speech_timeout_value is not None:
+            self.state.settings.speech_end_speech_timeout_value.set(
+                str(settings.speech.end_speech_timeout)
+            )
+        if self.state.settings.speech_user_letgo_debouncer_value is not None:
+            self.state.settings.speech_user_letgo_debouncer_value.set(
+                str(settings.speech.user_letgo_debouncer_seconds)
+            )
+        if self.state.settings.speech_timeout_base_value is not None:
+            self.state.settings.speech_timeout_base_value.set(
+                str(settings.speech.speech_timeout_base_sec)
+            )
+        if self.state.settings.speech_timeout_per_char_value is not None:
+            self.state.settings.speech_timeout_per_char_value.set(
+                str(settings.speech.speech_timeout_per_char_sec)
+            )
+        if self.state.settings.speech_timeout_min_value is not None:
+            self.state.settings.speech_timeout_min_value.set(
+                str(settings.speech.speech_timeout_min_sec)
+            )
+        if self.state.settings.speech_timeout_max_value is not None:
+            self.state.settings.speech_timeout_max_value.set(
+                str(settings.speech.speech_timeout_max_sec)
+            )
+        if self.state.settings.rag_embed_model_value is not None:
+            self.state.settings.rag_embed_model_value.set(settings.rag.embed_model)
+        if self.state.settings.rag_top_k_value is not None:
+            self.state.settings.rag_top_k_value.set(str(settings.rag.top_k))
+        if self.state.settings.rag_max_context_chars_value is not None:
+            self.state.settings.rag_max_context_chars_value.set(
+                str(settings.rag.max_context_chars)
+            )
+        if self.state.settings.rag_chunk_size_value is not None:
+            self.state.settings.rag_chunk_size_value.set(str(settings.rag.chunk_size))
+        if self.state.settings.rag_chunk_overlap_value is not None:
+            self.state.settings.rag_chunk_overlap_value.set(str(settings.rag.chunk_overlap))
+        if self.state.settings.rag_retrieval_timeout_value is not None:
+            self.state.settings.rag_retrieval_timeout_value.set(
+                str(settings.rag.retrieval_timeout)
+            )
+        if self.state.settings.rag_refresh_days_value is not None:
+            self.state.settings.rag_refresh_days_value.set(str(settings.rag.refresh_days))
+        if self.state.settings.web_enabled_value is not None:
+            self.state.settings.web_enabled_value.set(settings.web.enabled)
+        if self.state.settings.web_port_value is not None:
+            self.state.settings.web_port_value.set(str(settings.web.port))
+        if self.state.settings.web_public_max_text_chars_value is not None:
+            self.state.settings.web_public_max_text_chars_value.set(
+                str(settings.web.public_max_text_chars)
+            )
+        if self.state.settings.web_public_cooldown_sec_value is not None:
+            self.state.settings.web_public_cooldown_sec_value.set(
+                str(settings.web.public_cooldown_sec)
+            )
+        if self.state.settings.runtime_disconnect_timeout_value is not None:
+            self.state.settings.runtime_disconnect_timeout_value.set(
+                str(settings.runtime.disconnect_timeout)
+            )
 
     def clear_logs(self) -> None:
         self.state.clear_logs()

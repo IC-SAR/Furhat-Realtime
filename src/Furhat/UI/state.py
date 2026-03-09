@@ -20,6 +20,8 @@ class ControlsView:
     stop_speech_button: tk.Button | None = None
     repeat_last_button: tk.Button | None = None
     replay_greeting_button: tk.Button | None = None
+    activity_var: tk.StringVar | None = None
+    transcript_preview_text: tk.Text | None = None
 
 
 @dataclass(slots=True)
@@ -35,6 +37,8 @@ class CharacterView:
     open_rag_button: tk.Button
     character_status_var: tk.StringVar
     rag_status_var: tk.StringVar
+    preset_status_var: tk.StringVar | None = None
+    preset_preview_text: tk.Text | None = None
 
 
 @dataclass(slots=True)
@@ -66,8 +70,8 @@ class SystemView:
 class SettingsView:
     frame: tk.Frame
     model_value: tk.StringVar
-    model_options: tk.StringVar
-    model_menu: tk.OptionMenu
+    model_options: tk.StringVar | None
+    model_menu: tk.OptionMenu | None
     refresh_models_button: tk.Button
     temperature_value: tk.DoubleVar
     ip_value: tk.StringVar
@@ -86,6 +90,41 @@ class SettingsView:
     provider_menu: tk.OptionMenu | None = None
     api_base_url_value: tk.StringVar | None = None
     api_key_value: tk.StringVar | None = None
+    model_search_value: tk.StringVar | None = None
+    model_results_status_var: tk.StringVar | None = None
+    model_search_entry: tk.Entry | None = None
+    model_listbox: tk.Listbox | None = None
+    model_list_scrollbar: tk.Scrollbar | None = None
+    chat_max_tokens_value: tk.StringVar | None = None
+    chat_max_history_messages_value: tk.StringVar | None = None
+    chat_max_history_chars_value: tk.StringVar | None = None
+    chat_external_api_timeout_value: tk.StringVar | None = None
+    chat_llm_response_timeout_value: tk.StringVar | None = None
+    speech_max_sentences_value: tk.StringVar | None = None
+    speech_max_chars_value: tk.StringVar | None = None
+    speech_speak_thinking_value: tk.BooleanVar | None = None
+    speech_thinking_phrases_text: tk.Text | None = None
+    speech_thinking_delay_value: tk.StringVar | None = None
+    speech_thinking_repeat_value: tk.StringVar | None = None
+    speech_thinking_wait_timeout_value: tk.StringVar | None = None
+    speech_end_speech_timeout_value: tk.StringVar | None = None
+    speech_user_letgo_debouncer_value: tk.StringVar | None = None
+    speech_timeout_base_value: tk.StringVar | None = None
+    speech_timeout_per_char_value: tk.StringVar | None = None
+    speech_timeout_min_value: tk.StringVar | None = None
+    speech_timeout_max_value: tk.StringVar | None = None
+    rag_embed_model_value: tk.StringVar | None = None
+    rag_top_k_value: tk.StringVar | None = None
+    rag_max_context_chars_value: tk.StringVar | None = None
+    rag_chunk_size_value: tk.StringVar | None = None
+    rag_chunk_overlap_value: tk.StringVar | None = None
+    rag_retrieval_timeout_value: tk.StringVar | None = None
+    rag_refresh_days_value: tk.StringVar | None = None
+    web_enabled_value: tk.BooleanVar | None = None
+    web_port_value: tk.StringVar | None = None
+    web_public_max_text_chars_value: tk.StringVar | None = None
+    web_public_cooldown_sec_value: tk.StringVar | None = None
+    runtime_disconnect_timeout_value: tk.StringVar | None = None
 
 
 @dataclass(slots=True)
@@ -123,6 +162,7 @@ class ShellWidgets:
     title: tk.Label | None = None
     subtitle: tk.Label | None = None
     status_frame: tk.Frame | None = None
+    admin_button: tk.Button | None = None
 
 
 @dataclass(slots=True)
@@ -135,6 +175,8 @@ class UIState:
     logs: LogsView
     web_urls: dict[str, str]
     validation_dir: Path
+    operator_settings: SettingsView | None = None
+    admin_window: tk.Toplevel | None = None
     listen_button_enabled: bool = True
     space_is_down: bool = False
     applying_settings: bool = False
@@ -239,13 +281,22 @@ class UIState:
 
     def set_transcript_lines(self, lines: list[str]) -> None:
         if self.logs.transcript_text is None:
-            return
-        self.logs.transcript_text.configure(state="normal")
-        self.logs.transcript_text.delete("1.0", "end")
-        if lines:
-            self.logs.transcript_text.insert("end", "\n".join(lines))
-            self.logs.transcript_text.see("end")
-        self.logs.transcript_text.configure(state="disabled")
+            pass
+        else:
+            self.logs.transcript_text.configure(state="normal")
+            self.logs.transcript_text.delete("1.0", "end")
+            if lines:
+                self.logs.transcript_text.insert("end", "\n".join(lines))
+                self.logs.transcript_text.see("end")
+            self.logs.transcript_text.configure(state="disabled")
+        if self.controls.transcript_preview_text is not None:
+            preview_lines = lines[-5:]
+            self.controls.transcript_preview_text.configure(state="normal")
+            self.controls.transcript_preview_text.delete("1.0", "end")
+            if preview_lines:
+                self.controls.transcript_preview_text.insert("end", "\n".join(preview_lines))
+                self.controls.transcript_preview_text.see("end")
+            self.controls.transcript_preview_text.configure(state="disabled")
 
     def set_transcript_summary(self, text: str) -> None:
         if self.logs.transcript_summary_var is None:
@@ -268,6 +319,8 @@ class UIState:
 
     def set_apply_enabled(self, enabled: bool) -> None:
         self.settings.apply_button.configure(state=("normal" if enabled else "disabled"))
+        if self.operator_settings is not None:
+            self.operator_settings.apply_button.configure(state=("normal" if enabled else "disabled"))
 
     def position_elements(self) -> None:
         width = self.shell.canvas.winfo_width()

@@ -9,10 +9,20 @@ def build_character_view(parent: tk.Frame, *, character_path: str) -> CharacterV
     frame = tk.Frame(parent, bg="#111827", padx=16, pady=14)
     title = tk.Label(
         frame,
-        text="Character & RAG",
+        text="Character",
         fg="#e2e8f0",
         bg="#111827",
         font=("Trebuchet MS", 12, "bold"),
+    )
+    helper = tk.Label(
+        frame,
+        text="Switch characters, confirm RAG health, and review which presets are active.",
+        fg="#94a3b8",
+        bg="#111827",
+        font=("Trebuchet MS", 9),
+        anchor="w",
+        justify="left",
+        wraplength=620,
     )
     character_path_value = tk.StringVar(value=character_path)
     character_label = tk.Label(
@@ -113,18 +123,55 @@ def build_character_view(parent: tk.Frame, *, character_path: str) -> CharacterV
         wraplength=260,
         justify="left",
     )
+    preset_status_var = tk.StringVar(value="Presets: none")
+    preset_status_label = tk.Label(
+        frame,
+        textvariable=preset_status_var,
+        fg="#cbd5f5",
+        bg="#111827",
+        font=("Trebuchet MS", 9, "bold"),
+        wraplength=620,
+        justify="left",
+        anchor="w",
+    )
+    preset_preview_label = tk.Label(
+        frame,
+        text="Active preset preview",
+        fg="#cbd5f5",
+        bg="#111827",
+        font=("Trebuchet MS", 10, "bold"),
+        anchor="w",
+    )
+    preset_preview_text = tk.Text(
+        frame,
+        width=52,
+        height=7,
+        wrap="word",
+        bg="#0b1220",
+        fg="#e2e8f0",
+        insertbackground="#e2e8f0",
+        relief="flat",
+    )
+    preset_preview_text.configure(state="disabled")
 
     title.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
-    character_label.grid(row=1, column=0, columnspan=3, sticky="w")
-    character_entry.grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 6))
-    browse_char_button.grid(row=2, column=2, sticky="w", padx=(8, 0))
-    character_menu.grid(row=3, column=0, columnspan=2, sticky="w")
-    refresh_char_button.grid(row=3, column=2, sticky="w", padx=(8, 0))
-    load_char_button.grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
-    rebuild_rag_button.grid(row=5, column=0, sticky="w", pady=(6, 0))
-    open_rag_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
-    character_status_label.grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
-    rag_status_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(2, 0))
+    helper.grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 10))
+    character_label.grid(row=2, column=0, columnspan=3, sticky="w")
+    character_entry.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(2, 6))
+    browse_char_button.grid(row=3, column=2, sticky="w", padx=(8, 0))
+    character_menu.grid(row=4, column=0, columnspan=2, sticky="ew")
+    refresh_char_button.grid(row=4, column=2, sticky="w", padx=(8, 0))
+    load_char_button.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
+    rebuild_rag_button.grid(row=6, column=0, sticky="w", pady=(6, 0))
+    open_rag_button.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+    character_status_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(6, 0))
+    rag_status_label.grid(row=8, column=0, columnspan=3, sticky="w", pady=(2, 0))
+    preset_status_label.grid(row=9, column=0, columnspan=3, sticky="w", pady=(12, 4))
+    preset_preview_label.grid(row=10, column=0, columnspan=3, sticky="w", pady=(0, 6))
+    preset_preview_text.grid(row=11, column=0, columnspan=3, sticky="nsew")
+    frame.grid_columnconfigure(0, weight=1)
+    frame.grid_columnconfigure(1, weight=1)
+    frame.grid_rowconfigure(11, weight=1)
 
     return CharacterView(
         frame=frame,
@@ -138,4 +185,6 @@ def build_character_view(parent: tk.Frame, *, character_path: str) -> CharacterV
         open_rag_button=open_rag_button,
         character_status_var=character_status_var,
         rag_status_var=rag_status_var,
+        preset_status_var=preset_status_var,
+        preset_preview_text=preset_preview_text,
     )

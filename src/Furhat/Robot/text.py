@@ -20,6 +20,21 @@ _MARKDOWN_PATTERNS = [
 ]
 
 
+def configure_speech_settings(*, max_sentences: int | None = None, max_chars: int | None = None) -> None:
+    global SPEAK_MAX_SENTENCES, SPEAK_MAX_CHARS
+    if max_sentences is not None:
+        SPEAK_MAX_SENTENCES = int(max_sentences)
+    if max_chars is not None:
+        SPEAK_MAX_CHARS = int(max_chars)
+
+
+def get_speech_settings() -> dict[str, int]:
+    return {
+        "max_sentences": SPEAK_MAX_SENTENCES,
+        "max_chars": SPEAK_MAX_CHARS,
+    }
+
+
 def sanitize_for_speech(text: str) -> str:
     if not text:
         return ""

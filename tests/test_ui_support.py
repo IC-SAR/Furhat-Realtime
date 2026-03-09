@@ -97,6 +97,31 @@ class UISupportTests(unittest.TestCase):
 
         self.assertEqual(preview, "No active presets for the current character.")
 
+    def test_filter_model_names_is_case_insensitive_substring_match(self) -> None:
+        models = [
+            "openai/gpt-5-mini",
+            "openai/gpt-4.1-mini",
+            "anthropic/claude-sonnet",
+        ]
+
+        filtered = support.filter_model_names(models, "GPT")
+
+        self.assertEqual(
+            filtered,
+            ["openai/gpt-5-mini", "openai/gpt-4.1-mini"],
+        )
+
+    def test_filter_model_names_returns_all_when_query_is_empty(self) -> None:
+        models = ["alpha", "beta"]
+
+        self.assertEqual(support.filter_model_names(models, ""), models)
+
+    def test_format_model_results_status_covers_empty_filtered_and_full(self) -> None:
+        self.assertEqual(support.format_model_results_status(0, 0), "No fetched models yet")
+        self.assertEqual(support.format_model_results_status(8, 0), "0 matches")
+        self.assertEqual(support.format_model_results_status(8, 8), "8 models")
+        self.assertEqual(support.format_model_results_status(8, 3), "3 of 8 models")
+
 
 if __name__ == "__main__":
     unittest.main()
