@@ -67,6 +67,27 @@ HTML = """<!doctype html>
     }
 
     * { box-sizing: border-box; }
+
+    /* Prevent selection and tap highlights on touch devices (iPad/iOS).
+       Keep inputs selectable so users can still type and select text there. */
+    html, body, .shell, .hero, .panel, .preset-grid, .preset-card, .hold-button,
+    .send-button, .preset-card strong, .preset-card span, .hold-caption,
+    .status, .history-card, .eyebrow, h1, .subtitle {
+      -webkit-user-select: none; /* iOS Safari */
+      -ms-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none; /* disable callout on long press */
+      -webkit-tap-highlight-color: transparent; /* remove tap highlight */
+      -webkit-user-drag: none;
+      touch-action: manipulation;
+    }
+
+    /* Inputs and selectable controls should allow text selection and caret. */
+    .text-input, input, textarea {
+      -webkit-user-select: text;
+      -ms-user-select: text;
+      user-select: text;
+    }
     body {
       margin: 0;
       min-height: 100vh;
