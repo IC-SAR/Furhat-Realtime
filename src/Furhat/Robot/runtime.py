@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import os
 import random
@@ -90,6 +91,7 @@ class RobotRuntime:
         client_factory: FurhatClientFactory | None = None,
     ) -> None:
         self.client_factory = client_factory or create_furhat_client
+        self.loop: asyncio.AbstractEventLoop | None = None
         self.log_callback: Optional[Callable[[str], None]] = None
         self.listen_button_callback: Optional[Callable[[bool], None]] = None
         self.partial_text = ""
@@ -117,6 +119,9 @@ class RobotRuntime:
         self.furhat: FurhatClientProtocol = self.client_factory(ip_address)
         self.handlers_registered = False
         self.runtime_status.connected = False
+
+    def attach_loop(self, loop: asyncio.AbstractEventLoop | None) -> None:
+        self.loop = loop
 
     @property
     def is_speaking(self) -> bool:
@@ -163,7 +168,6 @@ class RobotRuntime:
             stop_no_speech=settings.listen.stop_no_speech,
             stop_user_end=settings.listen.stop_user_end,
             stop_robot_start=settings.listen.stop_robot_start,
-            interrupt_speech=settings.listen.interrupt_speech,
         )
         try:
             self.set_voice_settings(
@@ -344,11 +348,6 @@ class RobotRuntime:
         self.hear_end_event.clear()
         self.pending_listen_channel = channel
         self.pending_listen_source = "listen"
-        if self.listen_config.interrupt_speech and self.runtime_status.speaking and hasattr(
-            self.furhat, "request_speak_stop"
-        ):
-            await self.furhat.request_speak_stop()
-            self._notify("speech interrupted")
         self.runtime_status.listening = True
         await self.furhat.request_listen_start(
             partial=self.listen_config.partial,
@@ -498,14 +497,16 @@ class RobotRuntime:
         print("Ready")
         await self.run_idle_loop()
 
-    async def _async_disconnect(self) -> None:
+    async def _async_disconnect(self, client: FurhatClientProtocol | None = None) -> None:
+        target = client or self.furhat
         try:
             if DISCONNECT_TIMEOUT > 0:
-                await asyncio.wait_for(self.furhat.disconnect(), timeout=DISCONNECT_TIMEOUT)
+                await asyncio.wait_for(target.disconnect(), timeout=DISCONNECT_TIMEOUT)
             else:
-                await self.furhat.disconnect()
+                await target.disconnect()
             self.runtime_status.connected = False
             self.runtime_status.last_error = ""
+            self._notify("robot disconnected")
         except asyncio.TimeoutError:
             logger.warning("Timed out while disconnecting from Furhat.")
             self._notify("robot disconnect timeout")
@@ -516,7 +517,10 @@ class RobotRuntime:
             self.runtime_status.connected = False
             self.runtime_status.last_error = str(exc)
 
-    def _schedule_disconnect(self) -> None:
+    def _schedule_coroutine(
+        self,
+        coro: asyncio.Future,
+    ) -> asyncio.Task[None] | concurrent.futures.Future[None] | None:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -524,21 +528,38 @@ class RobotRuntime:
 
         if loop and loop.is_running():
             try:
-                loop.create_task(self._async_disconnect())
-                return
+                return loop.create_task(coro)
             except Exception:
-                logger.exception("Failed to schedule Furhat disconnect.")
+                logger.exception("Failed to schedule coroutine on running loop.")
 
-        threading.Thread(target=lambda: asyncio.run(self._async_disconnect()), daemon=True).start()
+        if self.loop and self.loop.is_running():
+            return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
-    def disconnect(self) -> None:
+        threading.Thread(target=lambda: asyncio.run(coro), daemon=True).start()
+        return None
+
+    def _schedule_disconnect(
+        self,
+        *,
+        client: FurhatClientProtocol | None = None,
+    ) -> asyncio.Task[None] | concurrent.futures.Future[None] | None:
+        return self._schedule_coroutine(self._async_disconnect(client))
+
+    def disconnect(
+        self,
+        *,
+        wait: bool = False,
+        timeout: float | None = None,
+    ) -> asyncio.Task[None] | concurrent.futures.Future[None] | None:
+        future = None
         try:
-            self._schedule_disconnect()
+            future = self._schedule_disconnect(client=self.furhat)
             self.runtime_status.connected = False
-            self.runtime_status.last_error = ""
-            self._notify("robot disconnected")
+            if wait and isinstance(future, concurrent.futures.Future):
+                future.result(timeout=timeout if timeout is not None else max(DISCONNECT_TIMEOUT, 0.0) + 1.0)
         except Exception:
             logger.exception("Failed to disconnect from Furhat.")
+        return future
 
     def get_ip(self) -> str:
         return robot_config.IP
@@ -548,13 +569,13 @@ class RobotRuntime:
         if not ip_address:
             raise ValueError("IP address cannot be empty.")
         robot_config.IP = ip_address
+        previous_client = self.furhat
         try:
-            self._schedule_disconnect()
+            self._schedule_disconnect(client=previous_client)
         except Exception:
             logger.exception("Failed to disconnect from Furhat.")
         self._init_client(robot_config.IP)
         self.runtime_status.connected = False
-        self.runtime_status.last_error = ""
 
     def get_listen_settings(self) -> dict[str, bool]:
         return self.listen_config.to_dict()
@@ -567,7 +588,6 @@ class RobotRuntime:
         stop_no_speech: Optional[bool] = None,
         stop_user_end: Optional[bool] = None,
         stop_robot_start: Optional[bool] = None,
-        interrupt_speech: Optional[bool] = None,
     ) -> None:
         if partial is not None:
             self.listen_config.partial = partial
@@ -579,8 +599,6 @@ class RobotRuntime:
             self.listen_config.stop_user_end = stop_user_end
         if stop_robot_start is not None:
             self.listen_config.stop_robot_start = stop_robot_start
-        if interrupt_speech is not None:
-            self.listen_config.interrupt_speech = interrupt_speech
 
     def get_voice_settings(self) -> dict[str, float | str]:
         return self.voice_config.to_dict()

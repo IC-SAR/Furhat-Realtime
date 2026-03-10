@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Callable, Optional
 
 from .runtime import runtime
@@ -11,6 +12,10 @@ def set_log_callback(callback: Optional[Callable[[str], None]]) -> None:
 
 def set_listen_button_enabled_callback(callback: Optional[Callable[[bool], None]]) -> None:
     runtime.set_listen_button_enabled_callback(callback)
+
+
+def attach_loop(loop: asyncio.AbstractEventLoop | None) -> None:
+    runtime.attach_loop(loop)
 
 
 def get_character_info() -> dict[str, str]:
@@ -73,8 +78,12 @@ async def on_speak_end(event: object) -> None:
     await runtime.on_speak_end(event)
 
 
-def disconnect() -> None:
-    runtime.disconnect()
+def disconnect(
+    *,
+    wait: bool = False,
+    timeout: float | None = None,
+) -> object:
+    return runtime.disconnect(wait=wait, timeout=timeout)
 
 
 def get_ip() -> str:
@@ -96,7 +105,6 @@ def set_listen_settings(
     stop_no_speech: bool | None = None,
     stop_user_end: bool | None = None,
     stop_robot_start: bool | None = None,
-    interrupt_speech: bool | None = None,
 ) -> None:
     runtime.set_listen_settings(
         partial=partial,
@@ -104,7 +112,6 @@ def set_listen_settings(
         stop_no_speech=stop_no_speech,
         stop_user_end=stop_user_end,
         stop_robot_start=stop_robot_start,
-        interrupt_speech=interrupt_speech,
     )
 
 

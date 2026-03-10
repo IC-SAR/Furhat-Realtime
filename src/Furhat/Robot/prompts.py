@@ -40,7 +40,6 @@ def build_system_prompt(character_info: object) -> str:
     character_name = info.get("name", "").strip()
     agent_name = info.get("agent_name", "").strip() or character_name
     description = info.get("description", "").strip()
-    opening_line = info.get("opening_line", "").strip()
 
     sections = [BASE_GUARDRAILS]
     if agent_name:
@@ -49,10 +48,5 @@ def build_system_prompt(character_info: object) -> str:
         sections.append(f"The character profile title is {character_name}.")
     if description:
         sections.append(f"Character role and scope: {description}")
-    if opening_line:
-        sections.append(
-            "Greeting guidance: the configured opening line is "
-            f'"{opening_line}". Use it as tone guidance when greeting, but do not repeat it unless it fits naturally.'
-        )
 
     return "\n\n".join(section for section in sections if section).strip()

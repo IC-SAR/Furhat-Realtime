@@ -6,6 +6,7 @@ import json
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -36,7 +37,6 @@ class RobotRuntimeTests(unittest.IsolatedAsyncioTestCase):
             stop_no_speech=True,
             stop_user_end=True,
             stop_robot_start=True,
-            interrupt_speech=False,
         )
 
         await self.runtime.on_listen_activate()
@@ -87,14 +87,6 @@ class RobotRuntimeTests(unittest.IsolatedAsyncioTestCase):
             channel="desktop",
             source="listen",
         )
-
-    async def test_on_listen_activate_interrupts_active_speech(self) -> None:
-        self.runtime.runtime_status.speaking = True
-        self.runtime.set_listen_settings(interrupt_speech=True)
-
-        await self.runtime.on_listen_activate()
-
-        self.assertEqual(len(self.fake_client.calls_named("request_speak_stop")), 1)
 
     async def test_speak_from_prompt_uses_rag_ollama_and_speech_cleanup(self) -> None:
         with (
@@ -268,6 +260,38 @@ class RobotRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(self.runtime.runtime_status.connected)
         self.assertEqual(self.runtime.runtime_status.last_error, "boom")
+
+    def test_disconnect_uses_attached_loop_from_sync_context(self) -> None:
+        loop = asyncio.new_event_loop()
+
+        def _run_loop() -> None:
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
+
+        thread = threading.Thread(target=_run_loop, daemon=True)
+        thread.start()
+        try:
+            deadline = time.time() + 1.0
+            while not loop.is_running():
+                if time.time() >= deadline:
+                    self.fail("background loop did not start")
+                time.sleep(0.01)
+
+            self.runtime.attach_loop(loop)
+            self.runtime.runtime_status.connected = True
+            self.runtime.runtime_status.last_error = "stale"
+
+            future = self.runtime.disconnect(wait=True, timeout=1.0)
+
+            self.assertTrue(hasattr(future, "result"))
+            self.assertEqual(len(self.fake_client.calls_named("disconnect")), 1)
+            self.assertFalse(self.runtime.runtime_status.connected)
+            self.assertEqual(self.runtime.runtime_status.last_error, "")
+        finally:
+            if loop.is_running():
+                loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=1.0)
+            loop.close()
 
     async def test_web_preset_prompt_records_transcript_metadata(self) -> None:
         with (

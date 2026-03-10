@@ -293,7 +293,6 @@ def create_ui(loop: Optional[asyncio.AbstractEventLoop]) -> tk.Tk:
     settings_view = build_settings_view(
         settings_scroll_parent,
         settings=settings,
-        local_ip_text=f"Local IP: {local_ip}:{web_port}",
     )
 
     controls_view.frame.pack(fill="both", expand=True)

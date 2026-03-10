@@ -960,13 +960,15 @@ def start_server(
     loop: Optional[asyncio.AbstractEventLoop],
     *,
     host: str = DEFAULT_HOST,
-    port: int = DEFAULT_PORT,
+    port: int | None = None,
     enabled: bool | None = None,
 ) -> Optional[ThreadingHTTPServer]:
     if enabled is None:
         enabled = WEB_ENABLED
     if not enabled:
         return None
+    if port is None:
+        port = DEFAULT_PORT
 
     _PUBLIC_STATE.reset()
 
@@ -978,7 +980,7 @@ def start_server(
             _Handler.icon_bytes = None
 
     _Handler.loop = loop
-    server = ThreadingHTTPServer((host, port), _Handler)
+    server = ThreadingHTTPServer((host, int(port)), _Handler)
     server.daemon_threads = True
 
     def _serve() -> None:

@@ -8,8 +8,7 @@
     "concat": true,
     "stop_no_speech": false,
     "stop_user_end": false,
-    "stop_robot_start": false,
-    "interrupt_speech": true
+    "stop_robot_start": false
   },
   "voice": {
     "name": "",

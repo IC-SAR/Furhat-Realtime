@@ -11,7 +11,6 @@ def build_settings_view(
     parent: tk.Frame,
     *,
     settings: settings_store.AppSettings,
-    local_ip_text: str,
 ) -> SettingsView:
     frame = tk.Frame(parent, bg="#111827", padx=16, pady=14)
     frame.grid_columnconfigure(1, weight=1)
@@ -204,25 +203,6 @@ def build_settings_view(
         width=15,
         relief="flat",
     )
-    reconnect_button = tk.Button(
-        frame,
-        text="Reconnect",
-        font=("Trebuchet MS", 9, "bold"),
-        fg="#0f172a",
-        bg="#fbbf24",
-        activebackground="#f59e0b",
-        activeforeground="#0f172a",
-        relief="flat",
-        padx=8,
-        pady=2,
-    )
-    local_ip_label = tk.Label(
-        frame,
-        text=local_ip_text,
-        fg="#cbd5f5",
-        bg="#111827",
-        font=("Trebuchet MS", 10),
-    )
     listen_title = tk.Label(
         frame,
         text="Listen settings",
@@ -235,7 +215,6 @@ def build_settings_view(
     listen_no_speech_value = tk.BooleanVar(value=settings.listen.stop_no_speech)
     listen_user_end_value = tk.BooleanVar(value=settings.listen.stop_user_end)
     listen_robot_start_value = tk.BooleanVar(value=settings.listen.stop_robot_start)
-    listen_interrupt_value = tk.BooleanVar(value=settings.listen.interrupt_speech)
     listen_partial_cb = tk.Checkbutton(
         frame,
         text="Partial",
@@ -276,15 +255,6 @@ def build_settings_view(
         frame,
         text="Stop on robot start",
         variable=listen_robot_start_value,
-        fg="#cbd5f5",
-        bg="#111827",
-        activebackground="#111827",
-        selectcolor="#0f172a",
-    )
-    listen_interrupt_cb = tk.Checkbutton(
-        frame,
-        text="Interrupt speech on listen",
-        variable=listen_interrupt_value,
         fg="#cbd5f5",
         bg="#111827",
         activebackground="#111827",
@@ -484,32 +454,29 @@ def build_settings_view(
     temperature_scale.grid(row=8, column=1, columnspan=3, sticky="w", pady=(2, 6))
     ip_label.grid(row=9, column=0, sticky="w")
     ip_entry.grid(row=9, column=1, sticky="w", padx=(8, 0))
-    reconnect_button.grid(row=9, column=2, sticky="w", padx=(8, 0))
-    local_ip_label.grid(row=10, column=0, columnspan=3, sticky="w", pady=(6, 0))
-    listen_title.grid(row=11, column=0, columnspan=3, sticky="w", pady=(10, 6))
-    listen_partial_cb.grid(row=12, column=0, sticky="w")
-    listen_concat_cb.grid(row=12, column=1, sticky="w")
-    listen_no_speech_cb.grid(row=13, column=0, sticky="w")
-    listen_user_end_cb.grid(row=13, column=1, sticky="w")
-    listen_robot_start_cb.grid(row=14, column=0, sticky="w")
-    listen_interrupt_cb.grid(row=14, column=1, sticky="w")
-    voice_title.grid(row=15, column=0, columnspan=3, sticky="w", pady=(10, 6))
-    voice_name_label.grid(row=16, column=0, sticky="w")
-    voice_name_entry.grid(row=16, column=1, sticky="w", padx=(8, 0))
-    voice_rate_label.grid(row=17, column=0, sticky="w")
-    voice_rate_scale.grid(row=17, column=1, columnspan=2, sticky="w", pady=(2, 6))
-    voice_volume_label.grid(row=18, column=0, sticky="w")
-    voice_volume_scale.grid(row=18, column=1, columnspan=2, sticky="w")
-    web_title.grid(row=19, column=0, columnspan=3, sticky="w", pady=(12, 6))
-    web_enabled_cb.grid(row=20, column=0, columnspan=3, sticky="w")
-    web_port_label.grid(row=21, column=0, sticky="w")
-    web_port_entry.grid(row=21, column=1, sticky="w", padx=(8, 0))
-    public_max_text_label.grid(row=22, column=0, sticky="w")
-    public_max_text_entry.grid(row=22, column=1, sticky="w", padx=(8, 0))
-    public_cooldown_label.grid(row=23, column=0, sticky="w")
-    public_cooldown_entry.grid(row=23, column=1, sticky="w", padx=(8, 0))
-    note_label.grid(row=24, column=0, columnspan=4, sticky="w", pady=(12, 0))
-    apply_button.grid(row=25, column=0, columnspan=3, sticky="w", pady=(10, 0))
+    listen_title.grid(row=10, column=0, columnspan=3, sticky="w", pady=(10, 6))
+    listen_partial_cb.grid(row=11, column=0, sticky="w")
+    listen_concat_cb.grid(row=11, column=1, sticky="w")
+    listen_no_speech_cb.grid(row=12, column=0, sticky="w")
+    listen_user_end_cb.grid(row=12, column=1, sticky="w")
+    listen_robot_start_cb.grid(row=13, column=0, sticky="w")
+    voice_title.grid(row=14, column=0, columnspan=3, sticky="w", pady=(10, 6))
+    voice_name_label.grid(row=15, column=0, sticky="w")
+    voice_name_entry.grid(row=15, column=1, sticky="w", padx=(8, 0))
+    voice_rate_label.grid(row=16, column=0, sticky="w")
+    voice_rate_scale.grid(row=16, column=1, columnspan=2, sticky="w", pady=(2, 6))
+    voice_volume_label.grid(row=17, column=0, sticky="w")
+    voice_volume_scale.grid(row=17, column=1, columnspan=2, sticky="w")
+    web_title.grid(row=18, column=0, columnspan=3, sticky="w", pady=(12, 6))
+    web_enabled_cb.grid(row=19, column=0, columnspan=3, sticky="w")
+    web_port_label.grid(row=20, column=0, sticky="w")
+    web_port_entry.grid(row=20, column=1, sticky="w", padx=(8, 0))
+    public_max_text_label.grid(row=21, column=0, sticky="w")
+    public_max_text_entry.grid(row=21, column=1, sticky="w", padx=(8, 0))
+    public_cooldown_label.grid(row=22, column=0, sticky="w")
+    public_cooldown_entry.grid(row=22, column=1, sticky="w", padx=(8, 0))
+    note_label.grid(row=23, column=0, columnspan=4, sticky="w", pady=(12, 0))
+    apply_button.grid(row=24, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
     return SettingsView(
         frame=frame,
@@ -518,13 +485,11 @@ def build_settings_view(
         refresh_models_button=refresh_models_button,
         temperature_value=temperature_value,
         ip_value=ip_value,
-        reconnect_button=reconnect_button,
         listen_partial_value=listen_partial_value,
         listen_concat_value=listen_concat_value,
         listen_no_speech_value=listen_no_speech_value,
         listen_user_end_value=listen_user_end_value,
         listen_robot_start_value=listen_robot_start_value,
-        listen_interrupt_value=listen_interrupt_value,
         voice_name_value=voice_name_value,
         voice_rate_value=voice_rate_value,
         voice_volume_value=voice_volume_value,

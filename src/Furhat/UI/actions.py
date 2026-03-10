@@ -65,7 +65,7 @@ class UIActions:
         if self.state.controls.replay_greeting_button is not None:
             self.state.controls.replay_greeting_button.configure(command=self.replay_greeting)
         self.state.settings.apply_button.configure(command=self.apply_settings)
-        self.state.settings.reconnect_button.configure(command=self.reconnect_robot)
+        self.state.system.reconnect_button.configure(command=self.reconnect_robot)
         self.state.logs.clear_logs_button.configure(command=self.clear_logs)
         self.state.settings.refresh_models_button.configure(command=self.refresh_model_list)
         self.state.character.refresh_char_button.configure(command=self.refresh_character_list)
@@ -728,6 +728,106 @@ class UIActions:
             float(chatbot.get_temperature()),
         )
 
+    def _chatbot_limits(self) -> dict[str, float | int]:
+        if hasattr(chatbot, "get_chat_settings"):
+            return dict(chatbot.get_chat_settings())
+        return {}
+
+    def _restore_chatbot_state(
+        self,
+        identity: tuple[str, str, str, str, float],
+        chat_settings: dict[str, float | int],
+    ) -> None:
+        chatbot.load_saved_settings(
+            identity[3],
+            identity[4],
+            identity[0],
+            identity[1],
+            identity[2],
+        )
+        if hasattr(chatbot, "configure_chat_settings"):
+            chatbot.configure_chat_settings(
+                max_tokens=int(chat_settings.get("max_tokens", 0)),
+                max_history_messages=int(chat_settings.get("max_history_messages", 0)),
+                max_history_chars=int(chat_settings.get("max_history_chars", 0)),
+                external_api_timeout=float(chat_settings.get("external_api_timeout", 30.0)),
+            )
+        chatbot.set_temperature(identity[4])
+
+    def _apply_live_settings(self, settings: AppSettings) -> None:
+        chatbot.load_saved_settings(
+            settings.model,
+            settings.temperature,
+            settings.provider,
+            settings.api_base_url,
+            settings.api_key,
+        )
+        chatbot.configure_chat_settings(
+            max_tokens=settings.chat.max_tokens,
+            max_history_messages=settings.chat.max_history_messages,
+            max_history_chars=settings.chat.max_history_chars,
+            external_api_timeout=settings.chat.external_api_timeout,
+        )
+        chatbot.set_temperature(settings.temperature)
+        set_speech_limits(
+            settings.speech.max_sentences,
+            settings.speech.max_chars,
+        )
+        configure_runtime_settings(
+            speak_thinking=settings.speech.speak_thinking,
+            thinking_phrases=settings.speech.thinking_phrases,
+            thinking_delay_sec=settings.speech.thinking_delay_sec,
+            thinking_repeat_sec=settings.speech.thinking_repeat_sec,
+            thinking_wait_timeout=settings.speech.thinking_wait_timeout,
+            speak_wait_timeout=settings.speech.speak_wait_timeout,
+            llm_response_timeout=settings.chat.llm_response_timeout,
+            rag_retrieval_timeout=settings.rag.retrieval_timeout,
+            disconnect_timeout=settings.runtime.disconnect_timeout,
+            end_speech_timeout=settings.speech.end_speech_timeout,
+            user_letgo_debouncer_seconds=settings.speech.user_letgo_debouncer_seconds,
+        )
+        set_retrieval_settings(
+            top_k=settings.rag.top_k,
+            max_context_chars=settings.rag.max_context_chars,
+            embed_model=settings.rag.embed_model,
+        )
+        set_build_settings(
+            settings.rag.embed_model,
+            settings.rag.chunk_size,
+            settings.rag.chunk_overlap,
+        )
+        set_public_settings(
+            enabled=settings.web.enabled,
+            port=settings.web.port,
+            max_text_chars=settings.web.public_max_text_chars,
+            cooldown_sec=settings.web.public_cooldown_sec,
+        )
+        robot.set_ip(settings.ip)
+        robot.set_listen_settings(
+            partial=settings.listen.partial,
+            concat=settings.listen.concat,
+            stop_no_speech=settings.listen.stop_no_speech,
+            stop_user_end=settings.listen.stop_user_end,
+            stop_robot_start=settings.listen.stop_robot_start,
+        )
+        robot.set_voice_settings(
+            settings.voice.name,
+            settings.voice.rate,
+            settings.voice.volume,
+        )
+        self._run_coroutine(robot.apply_voice_settings())
+
+    def _finalize_apply_settings(self, settings: AppSettings) -> None:
+        try:
+            self._apply_live_settings(settings)
+            self.save_settings(settings)
+            self._finish_status_update("settings updated", "#4ade80")
+        except Exception as exc:
+            self.state.clear_status()
+            self.state.flash_status(f"settings error: {exc}", "#f87171", duration_ms=5000)
+        finally:
+            self._finish_apply_settings()
+
     def on_provider_changed(self) -> None:
         self._available_models = []
         self.apply_model_filter()
@@ -1049,7 +1149,6 @@ class UIActions:
                 stop_no_speech=self.state.settings.listen_no_speech_value.get(),
                 stop_user_end=self.state.settings.listen_user_end_value.get(),
                 stop_robot_start=self.state.settings.listen_robot_start_value.get(),
-                interrupt_speech=self.state.settings.listen_interrupt_value.get(),
             ),
             voice=VoiceSettings(
                 name=self.state.settings.voice_name_value.get(),
@@ -1104,69 +1203,13 @@ class UIActions:
         try:
             settings = self._build_settings()
             previous_identity = self._chatbot_identity()
-            chatbot.configure_chat_settings(
-                max_tokens=settings.chat.max_tokens,
-                max_history_messages=settings.chat.max_history_messages,
-                max_history_chars=settings.chat.max_history_chars,
-                external_api_timeout=settings.chat.external_api_timeout,
-            )
-            chatbot.set_temperature(settings.temperature)
-            set_speech_limits(
-                settings.speech.max_sentences,
-                settings.speech.max_chars,
-            )
-            configure_runtime_settings(
-                speak_thinking=settings.speech.speak_thinking,
-                thinking_phrases=settings.speech.thinking_phrases,
-                thinking_delay_sec=settings.speech.thinking_delay_sec,
-                thinking_repeat_sec=settings.speech.thinking_repeat_sec,
-                thinking_wait_timeout=settings.speech.thinking_wait_timeout,
-                speak_wait_timeout=settings.speech.speak_wait_timeout,
-                llm_response_timeout=settings.chat.llm_response_timeout,
-                rag_retrieval_timeout=settings.rag.retrieval_timeout,
-                disconnect_timeout=settings.runtime.disconnect_timeout,
-                end_speech_timeout=settings.speech.end_speech_timeout,
-                user_letgo_debouncer_seconds=settings.speech.user_letgo_debouncer_seconds,
-            )
-            set_retrieval_settings(
-                top_k=settings.rag.top_k,
-                max_context_chars=settings.rag.max_context_chars,
-                embed_model=settings.rag.embed_model,
-            )
-            set_build_settings(
-                settings.rag.embed_model,
-                settings.rag.chunk_size,
-                settings.rag.chunk_overlap,
-            )
-            set_public_settings(
-                enabled=settings.web.enabled,
-                port=settings.web.port,
-                max_text_chars=settings.web.public_max_text_chars,
-                cooldown_sec=settings.web.public_cooldown_sec,
-            )
-            robot.set_ip(settings.ip)
-            robot.set_listen_settings(
-                partial=settings.listen.partial,
-                concat=settings.listen.concat,
-                stop_no_speech=settings.listen.stop_no_speech,
-                stop_user_end=settings.listen.stop_user_end,
-                stop_robot_start=settings.listen.stop_robot_start,
-                interrupt_speech=settings.listen.interrupt_speech,
-            )
-            robot.set_voice_settings(
-                settings.voice.name,
-                settings.voice.rate,
-                settings.voice.volume,
-            )
+            previous_chat_settings = self._chatbot_limits()
         except Exception as exc:
             self.state.clear_status()
             self.state.flash_status(f"settings error: {exc}", "#f87171", duration_ms=5000)
             self.state.applying_settings = False
             self.state.set_apply_enabled(True)
             return
-
-        self._run_coroutine(robot.apply_voice_settings())
-        self.save_settings(settings)
 
         normalized_new_identity = (
             settings.provider,
@@ -1179,6 +1222,7 @@ class UIActions:
         if normalized_new_identity != previous_identity:
 
             def _apply_model() -> None:
+                validation_succeeded = False
                 try:
                     self.state.root.after(
                         0,
@@ -1199,18 +1243,12 @@ class UIActions:
                     )
                     chatbot.set_temperature(settings.temperature)
                     chatbot.set_model(settings.model)
+                    validation_succeeded = True
                     self.state.root.after(
                         0,
-                        lambda: self._finish_status_update("settings updated", "#4ade80"),
+                        lambda: self._finalize_apply_settings(settings),
                     )
                 except Exception as exc:
-                    chatbot.load_saved_settings(
-                        previous_identity[3],
-                        previous_identity[4],
-                        previous_identity[0],
-                        previous_identity[1],
-                        previous_identity[2],
-                    )
                     self.state.root.after(
                         0,
                         lambda exc=exc: self._finish_status_update(
@@ -1220,21 +1258,14 @@ class UIActions:
                         ),
                     )
                 finally:
-                    self.state.root.after(0, self._finish_apply_settings)
+                    self._restore_chatbot_state(previous_identity, previous_chat_settings)
+                    if not validation_succeeded:
+                        self.state.root.after(0, self._finish_apply_settings)
 
             threading.Thread(target=_apply_model, daemon=True).start()
             return
 
-        chatbot.load_saved_settings(
-            settings.model,
-            settings.temperature,
-            settings.provider,
-            settings.api_base_url,
-            settings.api_key,
-        )
-        chatbot.set_temperature(settings.temperature)
-        self._finish_status_update("settings updated", "#4ade80")
-        self._finish_apply_settings()
+        self._finalize_apply_settings(settings)
 
     def _finish_status_update(
         self,
@@ -1320,7 +1351,6 @@ class UIActions:
             stop_no_speech=settings.listen.stop_no_speech,
             stop_user_end=settings.listen.stop_user_end,
             stop_robot_start=settings.listen.stop_robot_start,
-            interrupt_speech=settings.listen.interrupt_speech,
         )
         robot.set_voice_settings(settings.voice.name, settings.voice.rate, settings.voice.volume)
         if self.state.settings.provider_value is not None:
@@ -1340,7 +1370,6 @@ class UIActions:
         self.state.settings.listen_no_speech_value.set(settings.listen.stop_no_speech)
         self.state.settings.listen_user_end_value.set(settings.listen.stop_user_end)
         self.state.settings.listen_robot_start_value.set(settings.listen.stop_robot_start)
-        self.state.settings.listen_interrupt_value.set(settings.listen.interrupt_speech)
         self.state.settings.voice_name_value.set(settings.voice.name)
         self.state.settings.voice_rate_value.set(float(settings.voice.rate))
         self.state.settings.voice_volume_value.set(float(settings.voice.volume))

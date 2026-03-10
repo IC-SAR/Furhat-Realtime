@@ -54,6 +54,7 @@ class SystemView:
     web_lan_var: tk.StringVar
     ollama_check_button: tk.Button
     ollama_start_button: tk.Button
+    reconnect_button: tk.Button
     open_settings_button: tk.Button
     open_web_button: tk.Button
     copy_web_url_button: tk.Button
@@ -84,13 +85,11 @@ class SettingsView:
     refresh_models_button: tk.Button
     temperature_value: tk.DoubleVar
     ip_value: tk.StringVar
-    reconnect_button: tk.Button
     listen_partial_value: tk.BooleanVar
     listen_concat_value: tk.BooleanVar
     listen_no_speech_value: tk.BooleanVar
     listen_user_end_value: tk.BooleanVar
     listen_robot_start_value: tk.BooleanVar
-    listen_interrupt_value: tk.BooleanVar
     voice_name_value: tk.StringVar
     voice_rate_value: tk.DoubleVar
     voice_volume_value: tk.DoubleVar

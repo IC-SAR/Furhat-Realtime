@@ -56,7 +56,6 @@ class ListenConfig:
     stop_no_speech: bool = False
     stop_user_end: bool = False
     stop_robot_start: bool = False
-    interrupt_speech: bool = True
 
     def to_dict(self) -> dict[str, bool]:
         return {
@@ -65,7 +64,6 @@ class ListenConfig:
             "stop_no_speech": self.stop_no_speech,
             "stop_user_end": self.stop_user_end,
             "stop_robot_start": self.stop_robot_start,
-            "interrupt_speech": self.interrupt_speech,
         }
 
 

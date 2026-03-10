@@ -34,7 +34,7 @@ class PromptTests(unittest.TestCase):
         self.assertIn("currently portraying the character Stormy", prompt)
         self.assertIn("character profile title is SVVSD HR Consultant", prompt)
         self.assertIn("Answers questions about district hiring and benefits.", prompt)
-        self.assertIn("Hello there", prompt)
+        self.assertNotIn("Hello there", prompt)
 
 
 if __name__ == "__main__":

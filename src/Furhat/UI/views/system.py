@@ -111,6 +111,20 @@ def build_system_view(parent: tk.Frame, *, web_urls: dict[str, str]) -> SystemVi
     )
     ollama_start_button.pack(side="left", padx=(8, 0))
 
+    reconnect_button = tk.Button(
+        action_row,
+        text="Reconnect robot",
+        font=("Trebuchet MS", 9, "bold"),
+        fg="#0f172a",
+        bg="#fbbf24",
+        activebackground="#f59e0b",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=10,
+        pady=4,
+    )
+    reconnect_button.pack(side="left", padx=(8, 0))
+
     access_card = tk.Frame(frame, bg="#0b1220", padx=14, pady=12)
     access_card.grid(row=2, column=1, sticky="nsew")
     access_card.grid_columnconfigure(0, weight=1)
@@ -273,6 +287,7 @@ def build_system_view(parent: tk.Frame, *, web_urls: dict[str, str]) -> SystemVi
         web_lan_var=web_lan_var,
         ollama_check_button=ollama_check_button,
         ollama_start_button=ollama_start_button,
+        reconnect_button=reconnect_button,
         open_settings_button=open_settings_button,
         open_web_button=open_web_button,
         copy_web_url_button=copy_web_url_button,

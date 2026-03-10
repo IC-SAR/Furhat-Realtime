@@ -166,6 +166,24 @@ class WebServerTests(unittest.TestCase):
         self.assertTrue(self.fake_robot.speak_called.wait(1))
         self.assertEqual(self.fake_robot.prompts, ["hello world"])
 
+    def test_start_server_uses_updated_default_port_when_port_is_omitted(self) -> None:
+        fake_server = mock.Mock()
+        fake_thread = mock.Mock()
+        original_port = web_server.DEFAULT_PORT
+        try:
+            web_server.set_public_settings(port=43210)
+            with (
+                mock.patch.object(web_server.paths, "get_asset_path", return_value=Path("__missing__.ico")),
+                mock.patch.object(web_server, "ThreadingHTTPServer", return_value=fake_server) as server_ctor,
+                mock.patch.object(web_server.threading, "Thread", return_value=fake_thread),
+            ):
+                web_server.start_server(None, host="127.0.0.1", port=None, enabled=True)
+
+            server_ctor.assert_called_once_with(("127.0.0.1", 43210), web_server._Handler)
+            fake_thread.start.assert_called_once()
+        finally:
+            web_server.set_public_settings(port=original_port)
+
 
 if __name__ == "__main__":
     unittest.main()
