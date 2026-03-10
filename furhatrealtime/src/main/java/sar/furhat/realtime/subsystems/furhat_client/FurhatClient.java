@@ -59,7 +59,6 @@ public class FurhatClient {
 
   }
 
-
   public void disconnect() {
     if (session == null) {
       logger.warning("Attempted disconnecting from robot, but there was no session");

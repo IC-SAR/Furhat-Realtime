@@ -7,7 +7,7 @@ import sar.furhat.realtime.subsystems.furhat_client.FurhatClient;
 public class FurhatBase {
   private static FurhatBase instance = null;
 
-  protected static Mode mode;
+  private static Mode mode;
   private final FurhatClient furhatClient;
 
   private FurhatBase() {
@@ -24,12 +24,14 @@ public class FurhatBase {
     }
   }
 
-  public static synchronized FurhatBase getInstance() {
+  public static synchronized FurhatBase Init() {
     if (instance == null) {
       instance = new FurhatBase();
     }
     return instance;
   }
 
-  
+  public static synchronized void setMode(Mode mode) {
+    FurhatBase.mode = mode;
+  }
 }

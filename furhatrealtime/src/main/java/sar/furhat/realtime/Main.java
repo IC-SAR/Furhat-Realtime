@@ -31,17 +31,17 @@ public class Main {
         if (cmd.hasOption("mode")) {
             String modeVal = cmd.getOptionValue("mode");
             if (modeVal.equalsIgnoreCase("sim")) {
-                FurhatBase.mode = Mode.SIM;
+                FurhatBase.setMode(Mode.SIM);
                 logger.config("Requested Mode: sim");
             } else if (modeVal.equalsIgnoreCase("real")) {
-                FurhatBase.mode = Mode.REAL;
+                FurhatBase.setMode(Mode.REAL);
                 logger.config("Requested Mode: sim");
             } else {
-                FurhatBase.mode = Mode.REAL;
+                FurhatBase.setMode(Mode.REAL);
                 logger.config("Requested Mode: N/A. Falling back to REAL");
             }
         }
-        FurhatBase.getInstance();
+
 
     }
 
