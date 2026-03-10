@@ -30,6 +30,21 @@ class UISupportTests(unittest.TestCase):
         self.assertEqual(urls["lan"], "")
         self.assertEqual(urls["lan_display"], "unavailable")
 
+    def test_filter_model_list_is_case_insensitive_and_preserves_order(self) -> None:
+        models = [
+            "openai/gpt-5-mini",
+            "openai/gpt-4.1-mini",
+            "gemma3:4b",
+        ]
+        self.assertEqual(
+            support.filter_model_list(models, "GPT"),
+            ["openai/gpt-5-mini", "openai/gpt-4.1-mini"],
+        )
+        self.assertEqual(
+            support.filter_model_list(models, ""),
+            models,
+        )
+
     def test_build_diagnostics_snapshot_contains_required_keys(self) -> None:
         snapshot = support.build_diagnostics_snapshot(
             web_urls={"loopback": "http://127.0.0.1:7860", "lan": "http://192.168.1.50:7860"},

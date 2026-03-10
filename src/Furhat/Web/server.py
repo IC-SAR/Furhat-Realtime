@@ -20,6 +20,28 @@ MAX_PUBLIC_TEXT_CHARS = int(os.getenv("PUBLIC_MAX_TEXT_CHARS", "200"))
 PUBLIC_COOLDOWN_SEC = float(os.getenv("PUBLIC_COOLDOWN_SEC", "2"))
 
 
+def set_public_settings(
+    *,
+    enabled: bool | None = None,
+    port: int | None = None,
+    max_text_chars: int | None = None,
+    cooldown_sec: float | None = None,
+) -> None:
+    global WEB_ENABLED, DEFAULT_PORT, MAX_PUBLIC_TEXT_CHARS, PUBLIC_COOLDOWN_SEC
+    if enabled is not None:
+        WEB_ENABLED = bool(enabled)
+    if port is not None:
+        DEFAULT_PORT = int(port)
+    if max_text_chars is not None:
+        if int(max_text_chars) <= 0:
+            raise ValueError("Public max text chars must be > 0.")
+        MAX_PUBLIC_TEXT_CHARS = int(max_text_chars)
+    if cooldown_sec is not None:
+        if float(cooldown_sec) < 0:
+            raise ValueError("Public cooldown must be >= 0.")
+        PUBLIC_COOLDOWN_SEC = float(cooldown_sec)
+
+
 HTML = """<!doctype html>
 <html>
 <head>

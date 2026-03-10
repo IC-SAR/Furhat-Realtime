@@ -14,6 +14,17 @@ from .embeddings import embed_text
 logger = logging.getLogger(__name__)
 
 
+def set_retrieval_settings(*, top_k: int, max_context_chars: int, embed_model: str) -> None:
+    if top_k <= 0:
+        raise ValueError("Top-k must be > 0.")
+    if max_context_chars <= 0:
+        raise ValueError("Max context chars must be > 0.")
+    global TOP_K, MAX_CONTEXT_CHARS, EMBED_MODEL
+    TOP_K = int(top_k)
+    MAX_CONTEXT_CHARS = int(max_context_chars)
+    EMBED_MODEL = embed_model.strip() or EMBED_MODEL
+
+
 @dataclass
 class RagEntry:
     text: str

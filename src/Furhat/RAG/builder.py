@@ -16,6 +16,17 @@ from .embeddings import embed_texts
 logger = logging.getLogger(__name__)
 
 
+def set_build_settings(model: str, chunk_size: int, chunk_overlap: int) -> None:
+    if chunk_size <= 0:
+        raise ValueError("Chunk size must be > 0.")
+    if chunk_overlap < 0:
+        raise ValueError("Chunk overlap must be >= 0.")
+    global EMBED_MODEL, CHUNK_SIZE, CHUNK_OVERLAP
+    EMBED_MODEL = model.strip() or EMBED_MODEL
+    CHUNK_SIZE = int(chunk_size)
+    CHUNK_OVERLAP = int(chunk_overlap)
+
+
 @dataclass
 class RagEntry:
     text: str

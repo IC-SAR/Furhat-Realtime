@@ -28,6 +28,14 @@ def build_web_urls(port: int, local_ip: str) -> dict[str, str]:
     }
 
 
+def filter_model_list(models: Iterable[str], query: str) -> list[str]:
+    items = [str(item) for item in models if str(item).strip()]
+    search = str(query).strip().lower()
+    if not search:
+        return items
+    return [item for item in items if search in item.lower()]
+
+
 def build_diagnostics_snapshot(
     *,
     web_urls: Mapping[str, str],

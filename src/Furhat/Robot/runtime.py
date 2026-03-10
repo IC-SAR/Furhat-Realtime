@@ -44,6 +44,45 @@ MAX_TRANSCRIPT_TURNS = 100
 THINKING_PHRASES = list(robot_config.GENERATION_RESPONSES)
 
 
+def configure_runtime_settings(
+    *,
+    speak_thinking: bool,
+    thinking_phrases: list[str],
+    thinking_delay_sec: float,
+    thinking_repeat_sec: float,
+    thinking_wait_timeout: float,
+    speak_wait_timeout: float,
+    llm_response_timeout: float,
+    rag_retrieval_timeout: float,
+    disconnect_timeout: float,
+    end_speech_timeout: float,
+    user_letgo_debouncer_seconds: float,
+) -> None:
+    global SPEAK_THINKING
+    global THINKING_DELAY_SEC
+    global THINKING_REPEAT_SEC
+    global THINKING_WAIT_TIMEOUT
+    global SPEAK_WAIT_TIMEOUT
+    global OLLAMA_RESPONSE_TIMEOUT
+    global RAG_RETRIEVAL_TIMEOUT
+    global DISCONNECT_TIMEOUT
+    global THINKING_PHRASES
+
+    SPEAK_THINKING = bool(speak_thinking)
+    THINKING_DELAY_SEC = float(thinking_delay_sec)
+    THINKING_REPEAT_SEC = float(thinking_repeat_sec)
+    THINKING_WAIT_TIMEOUT = float(thinking_wait_timeout)
+    SPEAK_WAIT_TIMEOUT = float(speak_wait_timeout)
+    OLLAMA_RESPONSE_TIMEOUT = float(llm_response_timeout)
+    RAG_RETRIEVAL_TIMEOUT = float(rag_retrieval_timeout)
+    DISCONNECT_TIMEOUT = float(disconnect_timeout)
+    THINKING_PHRASES = [phrase.strip() for phrase in thinking_phrases if phrase.strip()]
+    robot_config.GENERATION_RESPONSES = list(THINKING_PHRASES)
+    robot_config.THINKING_RESPONSE_INTERVAL_SECONDS = THINKING_REPEAT_SEC
+    robot_config.END_SPEECH_TIMEOUT = float(end_speech_timeout)
+    robot_config.USER_LETGO_DEBOUNCER_SECONDS = float(user_letgo_debouncer_seconds)
+
+
 class RobotRuntime:
     def __init__(
         self,
@@ -136,7 +175,20 @@ class RobotRuntime:
             logger.warning("Failed to apply voice settings: %s", exc)
         if hasattr(Ollama, "load_saved_settings"):
             try:
-                Ollama.load_saved_settings(settings.model, settings.temperature)
+                Ollama.load_saved_settings(
+                    settings.model,
+                    settings.temperature,
+                    settings.provider,
+                    settings.api_base_url,
+                    settings.api_key,
+                )
+                if hasattr(Ollama, "configure_chat_settings"):
+                    Ollama.configure_chat_settings(
+                        max_tokens=settings.chat.max_tokens,
+                        max_history_messages=settings.chat.max_history_messages,
+                        max_history_chars=settings.chat.max_history_chars,
+                        external_api_timeout=settings.chat.external_api_timeout,
+                    )
             except Exception as exc:
                 logger.warning("Failed to apply Ollama settings: %s", exc)
         return settings

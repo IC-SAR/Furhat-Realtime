@@ -15,11 +15,15 @@ class ControlsView:
     manual_placeholder: str
     manual_entry: tk.Entry
     send_button: tk.Button
-    clear_context_button: tk.Button
     listen_button: tk.Button
+    clear_context_button: tk.Button | None = None
     stop_speech_button: tk.Button | None = None
     repeat_last_button: tk.Button | None = None
     replay_greeting_button: tk.Button | None = None
+    live_status_var: tk.StringVar | None = None
+    heard_var: tk.StringVar | None = None
+    spoken_var: tk.StringVar | None = None
+    transcript_preview: tk.Text | None = None
 
 
 @dataclass(slots=True)
@@ -31,10 +35,13 @@ class CharacterView:
     browse_char_button: tk.Button
     refresh_char_button: tk.Button
     load_char_button: tk.Button
-    rebuild_rag_button: tk.Button
-    open_rag_button: tk.Button
     character_status_var: tk.StringVar
     rag_status_var: tk.StringVar
+    rebuild_rag_button: tk.Button | None = None
+    open_rag_button: tk.Button | None = None
+    preset_status_var: tk.StringVar | None = None
+    preset_preview_text: tk.Text | None = None
+    open_admin_button: tk.Button | None = None
 
 
 @dataclass(slots=True)
@@ -50,24 +57,30 @@ class SystemView:
     open_settings_button: tk.Button
     open_web_button: tk.Button
     copy_web_url_button: tk.Button
-    preset_status_var: tk.StringVar | None = None
-    open_preset_button: tk.Button | None = None
-    reload_preset_button: tk.Button | None = None
-    validate_preset_button: tk.Button | None = None
-    save_preset_button: tk.Button | None = None
-    revert_preset_button: tk.Button | None = None
-    preset_editor: tk.Text | None = None
-    preset_preview_text: tk.Text | None = None
-    preset_editor_state_var: tk.StringVar | None = None
-    preset_validation_var: tk.StringVar | None = None
+    clear_context_button: tk.Button
+    rebuild_rag_button: tk.Button
+    open_rag_button: tk.Button
+
+
+@dataclass(slots=True)
+class PresetsView:
+    frame: tk.Frame
+    preset_status_var: tk.StringVar
+    open_preset_button: tk.Button
+    reload_preset_button: tk.Button
+    validate_preset_button: tk.Button
+    save_preset_button: tk.Button
+    revert_preset_button: tk.Button
+    preset_editor: tk.Text
+    preset_preview_text: tk.Text
+    preset_editor_state_var: tk.StringVar
+    preset_validation_var: tk.StringVar
 
 
 @dataclass(slots=True)
 class SettingsView:
     frame: tk.Frame
     model_value: tk.StringVar
-    model_options: tk.StringVar
-    model_menu: tk.OptionMenu
     refresh_models_button: tk.Button
     temperature_value: tk.DoubleVar
     ip_value: tk.StringVar
@@ -82,6 +95,43 @@ class SettingsView:
     voice_rate_value: tk.DoubleVar
     voice_volume_value: tk.DoubleVar
     apply_button: tk.Button
+    chat_max_tokens_value: tk.IntVar
+    chat_max_history_messages_value: tk.IntVar
+    chat_max_history_chars_value: tk.IntVar
+    llm_response_timeout_value: tk.DoubleVar
+    speech_max_sentences_value: tk.IntVar
+    speech_max_chars_value: tk.IntVar
+    speak_thinking_value: tk.BooleanVar
+    thinking_phrases_value: tk.StringVar
+    thinking_delay_value: tk.DoubleVar
+    thinking_repeat_value: tk.DoubleVar
+    thinking_wait_timeout_value: tk.DoubleVar
+    speak_wait_timeout_value: tk.DoubleVar
+    end_speech_timeout_value: tk.DoubleVar
+    listen_release_debounce_value: tk.DoubleVar
+    rag_embed_model_value: tk.StringVar
+    rag_top_k_value: tk.IntVar
+    rag_max_context_chars_value: tk.IntVar
+    rag_chunk_size_value: tk.IntVar
+    rag_chunk_overlap_value: tk.IntVar
+    rag_retrieval_timeout_value: tk.DoubleVar
+    web_enabled_value: tk.BooleanVar
+    web_port_value: tk.IntVar
+    public_max_text_chars_value: tk.IntVar
+    public_cooldown_value: tk.DoubleVar
+    disconnect_timeout_value: tk.DoubleVar
+    provider_menu: tk.OptionMenu | None = None
+    model_search_value: tk.StringVar | None = None
+    model_results_status_var: tk.StringVar | None = None
+    model_results_listbox: tk.Listbox | None = None
+    model_results_scrollbar: tk.Scrollbar | None = None
+    secondary_apply_button: tk.Button | None = None
+    note_var: tk.StringVar | None = None
+    provider_value: tk.StringVar | None = None
+    provider_display_value: tk.StringVar | None = None
+    api_base_url_value: tk.StringVar | None = None
+    api_key_value: tk.StringVar | None = None
+    external_api_timeout_value: tk.DoubleVar | None = None
 
 
 @dataclass(slots=True)
@@ -100,6 +150,22 @@ class LogsView:
 
 
 @dataclass(slots=True)
+class AdminShell:
+    window: tk.Toplevel | object
+    nav_buttons: dict[str, tk.Button]
+    panel_frames: dict[str, tk.Frame]
+    title_var: tk.StringVar
+    current_panel: str = "system"
+
+
+@dataclass(slots=True)
+class AdvancedSettingsView:
+    frame: tk.Frame
+    apply_button: tk.Button
+    thinking_phrases_text: tk.Text | None = None
+
+
+@dataclass(slots=True)
 class ShellWidgets:
     root: tk.Tk
     loop: Optional[asyncio.AbstractEventLoop]
@@ -115,10 +181,13 @@ class ShellWidgets:
     robot_state_label: tk.Label
     ollama_state_label: tk.Label
     main_frame: tk.Frame
-    notebook: ttk.Notebook
+    notebook: ttk.Notebook | None = None
     title: tk.Label | None = None
     subtitle: tk.Label | None = None
     status_frame: tk.Frame | None = None
+    nav_buttons: dict[str, tk.Button] | None = None
+    section_frames: dict[str, tk.Frame] | None = None
+    admin_button: tk.Button | None = None
 
 
 @dataclass(slots=True)
@@ -131,9 +200,13 @@ class UIState:
     logs: LogsView
     web_urls: dict[str, str]
     validation_dir: Path
+    presets: PresetsView | None = None
+    advanced_settings: AdvancedSettingsView | None = None
+    admin: AdminShell | None = None
     listen_button_enabled: bool = True
     space_is_down: bool = False
     applying_settings: bool = False
+    current_primary_section: str = "operate"
     status_base_message: str = "idle"
     status_base_color: str = "#94a3b8"
     status_override_message: str = ""
@@ -258,12 +331,26 @@ class UIState:
             widget.see("1.0")
         widget.configure(state="disabled")
 
+    def set_preview_text(self, widget: tk.Text | None, lines: list[str]) -> None:
+        if widget is None:
+            return
+        widget.configure(state="normal")
+        widget.delete("1.0", "end")
+        if lines:
+            widget.insert("end", "\n".join(lines))
+            widget.see("1.0")
+        widget.configure(state="disabled")
+
     def set_listen_button_enabled(self, enabled: bool) -> None:
         self.listen_button_enabled = bool(enabled)
         self.controls.listen_button.configure(state=("normal" if enabled else "disabled"))
 
     def set_apply_enabled(self, enabled: bool) -> None:
         self.settings.apply_button.configure(state=("normal" if enabled else "disabled"))
+        if self.settings.secondary_apply_button is not None:
+            self.settings.secondary_apply_button.configure(state=("normal" if enabled else "disabled"))
+        if self.advanced_settings is not None:
+            self.advanced_settings.apply_button.configure(state=("normal" if enabled else "disabled"))
 
     def position_elements(self) -> None:
         width = self.shell.canvas.winfo_width()
@@ -297,3 +384,72 @@ class UIState:
         main_height = max(260, height - y - 20)
         self.shell.canvas.itemconfigure(self.shell.main_id, width=content_width, height=main_height)
         self.shell.canvas.coords(self.shell.main_id, x_center, y)
+
+    def switch_primary_section(self, name: str) -> None:
+        frames = self.shell.section_frames or {}
+        buttons = self.shell.nav_buttons or {}
+        if name not in frames:
+            return
+        self.current_primary_section = name
+        for section_name, frame in frames.items():
+            if section_name == name:
+                frame.grid()
+            else:
+                frame.grid_remove()
+        for section_name, button in buttons.items():
+            is_active = section_name == name
+            button.configure(
+                bg=("#2563eb" if is_active else "#111827"),
+                fg=("#f8fafc" if is_active else "#cbd5e1"),
+                activebackground=("#1d4ed8" if is_active else "#1f2937"),
+                activeforeground="#f8fafc",
+                relief="flat",
+            )
+
+    def switch_admin_panel(self, name: str) -> None:
+        if self.admin is None:
+            return
+        if name not in self.admin.panel_frames:
+            return
+        self.admin.current_panel = name
+        for panel_name, frame in self.admin.panel_frames.items():
+            if panel_name == name:
+                frame.grid()
+            else:
+                frame.grid_remove()
+        for panel_name, button in self.admin.nav_buttons.items():
+            is_active = panel_name == name
+            button.configure(
+                bg=("#2563eb" if is_active else "#111827"),
+                fg=("#f8fafc" if is_active else "#cbd5e1"),
+                activebackground=("#1d4ed8" if is_active else "#1f2937"),
+                activeforeground="#f8fafc",
+                relief="flat",
+            )
+        self.admin.title_var.set(
+            {
+                "system": "Admin Tools / Runtime",
+                "presets": "Admin Tools / Presets",
+                "advanced": "Admin Tools / Advanced Settings",
+                "logs": "Admin Tools / History & Exports",
+            }.get(name, "Admin Tools")
+        )
+
+    def open_admin_window(self, panel: str = "system") -> None:
+        if self.admin is None:
+            return
+        window = self.admin.window
+        if hasattr(window, "deiconify"):
+            window.deiconify()
+        if hasattr(window, "lift"):
+            window.lift()
+        if hasattr(window, "focus_force"):
+            window.focus_force()
+        self.switch_admin_panel(panel)
+
+    def close_admin_window(self) -> None:
+        if self.admin is None:
+            return
+        window = self.admin.window
+        if hasattr(window, "withdraw"):
+            window.withdraw()

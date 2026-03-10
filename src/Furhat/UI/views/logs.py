@@ -9,7 +9,7 @@ def build_logs_view(parent: tk.Frame) -> LogsView:
     frame = tk.Frame(parent, bg="#111827", padx=16, pady=14)
     title = tk.Label(
         frame,
-        text="Logs & Transcript",
+        text="History & Exports",
         fg="#e2e8f0",
         bg="#111827",
         font=("Trebuchet MS", 12, "bold"),
@@ -78,7 +78,7 @@ def build_logs_view(parent: tk.Frame) -> LogsView:
     )
     system_log_label = tk.Label(
         frame,
-        text="System log",
+        text="Runtime log",
         fg="#cbd5f5",
         bg="#111827",
         font=("Trebuchet MS", 10, "bold"),

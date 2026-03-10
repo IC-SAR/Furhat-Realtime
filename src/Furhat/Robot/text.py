@@ -20,6 +20,14 @@ _MARKDOWN_PATTERNS = [
 ]
 
 
+def set_speech_limits(max_sentences: int, max_chars: int) -> None:
+    if max_sentences < 0 or max_chars < 0:
+        raise ValueError("Speech limits must be non-negative.")
+    global SPEAK_MAX_SENTENCES, SPEAK_MAX_CHARS
+    SPEAK_MAX_SENTENCES = int(max_sentences)
+    SPEAK_MAX_CHARS = int(max_chars)
+
+
 def sanitize_for_speech(text: str) -> str:
     if not text:
         return ""

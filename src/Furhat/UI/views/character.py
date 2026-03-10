@@ -6,125 +6,168 @@ from ..state import CharacterView
 
 
 def build_character_view(parent: tk.Frame, *, character_path: str) -> CharacterView:
-    frame = tk.Frame(parent, bg="#111827", padx=16, pady=14)
+    frame = tk.Frame(parent, bg="#0f172a", padx=6, pady=6)
+    frame.grid_columnconfigure(0, weight=3)
+    frame.grid_columnconfigure(1, weight=2)
+    frame.grid_rowconfigure(0, weight=1)
+
+    left_card = tk.Frame(frame, bg="#111827", padx=18, pady=16)
+    left_card.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+    left_card.grid_columnconfigure(0, weight=1)
+    left_card.grid_columnconfigure(1, weight=0)
+
     title = tk.Label(
-        frame,
-        text="Character & RAG",
-        fg="#e2e8f0",
+        left_card,
+        text="Character",
+        fg="#f8fafc",
         bg="#111827",
         font=("Trebuchet MS", 12, "bold"),
     )
+    title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+
+    character_status_var = tk.StringVar(value="Active: none")
+    character_status = tk.Label(
+        left_card,
+        textvariable=character_status_var,
+        fg="#93c5fd",
+        bg="#111827",
+        wraplength=420,
+        justify="left",
+        anchor="w",
+        font=("Trebuchet MS", 10, "bold"),
+    )
+    character_status.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+
     character_path_value = tk.StringVar(value=character_path)
-    character_label = tk.Label(
-        frame,
+    path_label = tk.Label(
+        left_card,
         text="Character file",
-        fg="#cbd5f5",
+        fg="#cbd5e1",
         bg="#111827",
         font=("Trebuchet MS", 10),
     )
+    path_label.grid(row=2, column=0, columnspan=2, sticky="w")
+
     character_entry = tk.Entry(
-        frame,
+        left_card,
         textvariable=character_path_value,
         fg="#0f172a",
-        bg="#e2e8f0",
-        width=28,
+        bg="#f8fafc",
+        width=36,
         relief="flat",
     )
-    character_options = tk.StringVar(value="Select character")
-    character_menu = tk.OptionMenu(frame, character_options, "loading...")
-    character_menu.configure(bg="#0f172a", fg="#e2e8f0", activebackground="#111827")
-    refresh_char_button = tk.Button(
-        frame,
-        text="Refresh",
-        font=("Trebuchet MS", 9, "bold"),
-        fg="#0f172a",
-        bg="#38bdf8",
-        activebackground="#0ea5e9",
-        activeforeground="#0f172a",
-        relief="flat",
-        padx=6,
-        pady=2,
-    )
+    character_entry.grid(row=3, column=0, sticky="ew", pady=(4, 8))
+
     browse_char_button = tk.Button(
-        frame,
+        left_card,
         text="Browse",
         font=("Trebuchet MS", 9, "bold"),
         fg="#0f172a",
-        bg="#94a3b8",
-        activebackground="#64748b",
-        activeforeground="#0f172a",
-        relief="flat",
-        padx=6,
-        pady=2,
-    )
-    load_char_button = tk.Button(
-        frame,
-        text="Load character",
-        font=("Trebuchet MS", 10, "bold"),
-        fg="#0f172a",
-        bg="#fbbf24",
-        activebackground="#f59e0b",
+        bg="#cbd5e1",
+        activebackground="#94a3b8",
         activeforeground="#0f172a",
         relief="flat",
         padx=10,
         pady=4,
     )
-    rebuild_rag_button = tk.Button(
-        frame,
-        text="Rebuild RAG",
+    browse_char_button.grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(4, 8))
+
+    character_options = tk.StringVar(value="Select character")
+    character_menu = tk.OptionMenu(left_card, character_options, "loading...")
+    character_menu.configure(bg="#111827", fg="#f8fafc", activebackground="#1f2937", relief="flat")
+    character_menu.grid(row=4, column=0, sticky="ew")
+
+    refresh_char_button = tk.Button(
+        left_card,
+        text="Refresh list",
         font=("Trebuchet MS", 9, "bold"),
         fg="#0f172a",
-        bg="#38bdf8",
-        activebackground="#0ea5e9",
+        bg="#cbd5e1",
+        activebackground="#94a3b8",
         activeforeground="#0f172a",
         relief="flat",
-        padx=8,
-        pady=2,
+        padx=10,
+        pady=4,
     )
-    open_rag_button = tk.Button(
-        frame,
-        text="Open sources",
-        font=("Trebuchet MS", 9, "bold"),
-        fg="#0f172a",
-        bg="#94a3b8",
-        activebackground="#64748b",
-        activeforeground="#0f172a",
+    refresh_char_button.grid(row=4, column=1, sticky="ew", padx=(8, 0))
+
+    load_char_button = tk.Button(
+        left_card,
+        text="Load character",
+        font=("Trebuchet MS", 10, "bold"),
+        fg="#f8fafc",
+        bg="#2563eb",
+        activebackground="#1d4ed8",
+        activeforeground="#f8fafc",
         relief="flat",
-        padx=8,
-        pady=2,
+        padx=12,
+        pady=6,
     )
-    character_status_var = tk.StringVar(value="Active: none")
-    character_status_label = tk.Label(
-        frame,
-        textvariable=character_status_var,
-        fg="#94a3b8",
-        bg="#111827",
-        font=("Trebuchet MS", 9),
-        wraplength=260,
-        justify="left",
-    )
+    load_char_button.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+
     rag_status_var = tk.StringVar(value="RAG: unknown")
-    rag_status_label = tk.Label(
-        frame,
+    rag_status = tk.Label(
+        left_card,
         textvariable=rag_status_var,
         fg="#94a3b8",
         bg="#111827",
-        font=("Trebuchet MS", 9),
-        wraplength=260,
+        wraplength=420,
         justify="left",
+        anchor="w",
+        font=("Trebuchet MS", 9),
     )
+    rag_status.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
-    title.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
-    character_label.grid(row=1, column=0, columnspan=3, sticky="w")
-    character_entry.grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 6))
-    browse_char_button.grid(row=2, column=2, sticky="w", padx=(8, 0))
-    character_menu.grid(row=3, column=0, columnspan=2, sticky="w")
-    refresh_char_button.grid(row=3, column=2, sticky="w", padx=(8, 0))
-    load_char_button.grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
-    rebuild_rag_button.grid(row=5, column=0, sticky="w", pady=(6, 0))
-    open_rag_button.grid(row=5, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
-    character_status_label.grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
-    rag_status_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(2, 0))
+    right_card = tk.Frame(frame, bg="#111827", padx=18, pady=16)
+    right_card.grid(row=0, column=1, sticky="nsew")
+    right_card.grid_columnconfigure(0, weight=1)
+    right_card.grid_rowconfigure(3, weight=1)
+
+    preset_title = tk.Label(
+        right_card,
+        text="Active Presets",
+        fg="#f8fafc",
+        bg="#111827",
+        font=("Trebuchet MS", 12, "bold"),
+    )
+    preset_title.grid(row=0, column=0, sticky="w", pady=(0, 12))
+
+    preset_status_var = tk.StringVar(value="Presets: none")
+    preset_status = tk.Label(
+        right_card,
+        textvariable=preset_status_var,
+        fg="#93c5fd",
+        bg="#111827",
+        wraplength=300,
+        justify="left",
+        anchor="w",
+        font=("Trebuchet MS", 10, "bold"),
+    )
+    preset_status.grid(row=1, column=0, sticky="ew")
+
+    preset_preview_text = tk.Text(
+        right_card,
+        height=14,
+        wrap="word",
+        bg="#0b1220",
+        fg="#e2e8f0",
+        insertbackground="#e2e8f0",
+        relief="flat",
+    )
+    preset_preview_text.configure(state="disabled")
+    preset_preview_text.grid(row=3, column=0, sticky="nsew", pady=(12, 0))
+
+    preset_note = tk.Label(
+        right_card,
+        text="Full preset editing and source maintenance live in Admin Tools.",
+        fg="#94a3b8",
+        bg="#111827",
+        wraplength=300,
+        justify="left",
+        anchor="w",
+        font=("Trebuchet MS", 9),
+    )
+    preset_note.grid(row=4, column=0, sticky="ew", pady=(12, 0))
 
     return CharacterView(
         frame=frame,
@@ -134,8 +177,11 @@ def build_character_view(parent: tk.Frame, *, character_path: str) -> CharacterV
         browse_char_button=browse_char_button,
         refresh_char_button=refresh_char_button,
         load_char_button=load_char_button,
-        rebuild_rag_button=rebuild_rag_button,
-        open_rag_button=open_rag_button,
         character_status_var=character_status_var,
         rag_status_var=rag_status_var,
+        rebuild_rag_button=None,
+        open_rag_button=None,
+        preset_status_var=preset_status_var,
+        preset_preview_text=preset_preview_text,
+        open_admin_button=None,
     )
