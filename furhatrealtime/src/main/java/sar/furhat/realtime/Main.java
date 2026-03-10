@@ -41,6 +41,8 @@ public class Main {
                 logger.config("Requested Mode: N/A. Falling back to REAL");
             }
         }
+        FurhatBase.getInstance();
+
     }
 
 }

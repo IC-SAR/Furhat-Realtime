@@ -7,4 +7,14 @@ public final class Constants {
       REAL
     }
   }
+
+  public final static class SimConstants {
+    public static String IP_ADDRESS = "127.0.0.1";
+    public static String PORT_NUMBER = "9000";
+  }
+
+  public final static class RealConstants {
+    public static String IP_ADDRESS = "";
+    public static String PORT_NUMBER = "9000";
+  }
 }
