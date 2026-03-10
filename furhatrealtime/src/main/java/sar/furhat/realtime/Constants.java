@@ -10,7 +10,7 @@ public final class Constants {
 
   public final static class SimConstants {
     public static String IP_ADDRESS = "127.0.0.1";
-    public static String PORT_NUMBER = "9000";
+    public static String PORT_NUMBER = "8080";
   }
 
   public final static class RealConstants {

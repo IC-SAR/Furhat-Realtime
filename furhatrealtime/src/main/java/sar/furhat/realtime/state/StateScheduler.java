@@ -33,7 +33,10 @@ public class StateScheduler {
     }
   }
 
-  public static void update() {
+  /**
+   * Updates every frame
+   */
+  private static void update() {
     if (currentState != null) {
       currentState.update();
 

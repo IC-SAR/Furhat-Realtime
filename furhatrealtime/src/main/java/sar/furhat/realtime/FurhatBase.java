@@ -2,6 +2,8 @@ package sar.furhat.realtime;
 
 
 import sar.furhat.realtime.Constants.FurhatBase.Mode;
+import sar.furhat.realtime.state.StateScheduler;
+import sar.furhat.realtime.states.InitState;
 import sar.furhat.realtime.subsystems.furhat_client.FurhatClient;
 
 public class FurhatBase {
@@ -9,6 +11,7 @@ public class FurhatBase {
 
   private static Mode mode;
   private final FurhatClient furhatClient;
+  private final InitState initState;
 
   private FurhatBase() {
     switch (mode) {
@@ -22,6 +25,10 @@ public class FurhatBase {
         furhatClient = null;
         break;
     }
+
+    initState = new InitState(furhatClient);
+    StateScheduler.setState(initState);
+    StateScheduler.startLoop(0);
   }
 
   public static synchronized FurhatBase Init() {

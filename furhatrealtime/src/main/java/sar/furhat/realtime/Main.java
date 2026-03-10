@@ -36,11 +36,13 @@ public class Main {
             } else if (modeVal.equalsIgnoreCase("real")) {
                 FurhatBase.setMode(Mode.REAL);
                 logger.config("Requested Mode: sim");
-            } else {
-                FurhatBase.setMode(Mode.REAL);
-                logger.config("Requested Mode: N/A. Falling back to REAL");
-            }
+            } 
+        } else {
+            FurhatBase.setMode(Mode.REAL);
+            logger.config("Requested Mode: N/A. Falling back to REAL");
         }
+
+        FurhatBase.Init();
 
 
     }
