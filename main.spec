@@ -18,6 +18,9 @@ app_exe_name = app_info.get('__exe_name__', 'Furhat-Realtime')
 app_exe_name = app_exe_name.replace('.exe', '')
 icon_path = spec_root / 'assets' / 'app.ico'
 version_info_path = spec_root / 'packaging' / 'version_info.txt'
+is_windows = sys.platform == 'win32'
+exe_icon = str(icon_path) if is_windows and icon_path.exists() else None
+version_resource = str(version_info_path) if is_windows and version_info_path.exists() else None
 
 a = Analysis(
     ['run.py'],
@@ -54,8 +57,8 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
-    icon=str(icon_path) if icon_path.exists() else None,
-    version=str(version_info_path) if version_info_path.exists() else None,
+    icon=exe_icon,
+    version=version_resource,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
