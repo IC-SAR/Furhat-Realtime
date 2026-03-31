@@ -45,13 +45,17 @@ jobs:
   build-and-upload:
     needs: ensure-release
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
+            optional: false
           - os: ubuntu-latest
-          - os: macos-13
+            optional: false
+          - os: macos-latest
+            optional: true
 
     steps:
       - uses: actions/checkout@v4
