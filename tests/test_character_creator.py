@@ -16,6 +16,35 @@ from Furhat.UI import character_creator  # noqa: E402
 
 
 class CharacterCreatorTests(unittest.TestCase):
+    def test_extract_voice_options_from_furhat_response_shape(self) -> None:
+        payload = {
+            "voice_id": "English (United States): AndrewNeural (Male, Microsoft Azure)",
+            "voice_list": [
+                {
+                    "voice_id": "English (United States): AndrewNeural (Male, Microsoft Azure)",
+                    "language": "en-US",
+                    "gender": "Male",
+                },
+                {
+                    "voice_id": "English (United Kingdom): SoniaNeural (Female, Microsoft Azure)",
+                    "language": "en-GB",
+                    "gender": "Female",
+                },
+            ],
+        }
+
+        voices, languages, genders = character_creator._extract_voice_options(payload)  # noqa: SLF001
+
+        self.assertEqual(
+            voices,
+            [
+                "English (United States): AndrewNeural (Male, Microsoft Azure)",
+                "English (United Kingdom): SoniaNeural (Female, Microsoft Azure)",
+            ],
+        )
+        self.assertEqual(languages, ["en-US", "en-GB"])
+        self.assertEqual(genders, ["Male", "Female"])
+
     def test_extract_face_ids_from_furhat_response_shape(self) -> None:
         payload = {
             "face_id": "adult-Alex",
