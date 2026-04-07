@@ -30,6 +30,7 @@ from ..settings_store import (
     VoiceSettings,
     WebSettings,
 )
+from .character_creator import launch_character_creator
 from . import support
 from .state import UIState
 
@@ -71,6 +72,8 @@ class UIActions:
         self.state.character.refresh_char_button.configure(command=self.refresh_character_list)
         self.state.character.browse_char_button.configure(command=self.browse_character)
         self.state.character.load_char_button.configure(command=lambda: self.apply_character(False))
+        if self.state.character.open_creator_button is not None:
+            self.state.character.open_creator_button.configure(command=self.open_character_creator)
         self.state.system.ollama_check_button.configure(command=self.refresh_model_list)
         self.state.system.ollama_start_button.configure(command=self.start_ollama)
         self.state.system.open_settings_button.configure(command=self.open_settings)
@@ -334,6 +337,12 @@ class UIActions:
         self.state.character.character_options.set(Path(value).name)
         self.refresh_character_status()
         self.refresh_rag_status()
+
+    def open_character_creator(self) -> None:
+        launch_character_creator(
+            self.state.root,
+            initial_path=self.state.character.character_path_value.get().strip(),
+        )
 
     def refresh_character_list(self) -> None:
         items = character_loader.list_character_files()

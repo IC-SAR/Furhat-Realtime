@@ -42,6 +42,7 @@ class CharacterView:
     preset_status_var: tk.StringVar | None = None
     preset_preview_text: tk.Text | None = None
     open_admin_button: tk.Button | None = None
+    open_creator_button: tk.Button | None = None
 
 
 @dataclass(slots=True)

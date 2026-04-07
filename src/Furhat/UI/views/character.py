@@ -105,6 +105,20 @@ def build_character_view(parent: tk.Frame, *, character_path: str) -> CharacterV
     )
     load_char_button.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(12, 0))
 
+    open_creator_button = tk.Button(
+        left_card,
+        text="Open Character Creator",
+        font=("Trebuchet MS", 10, "bold"),
+        fg="#0f172a",
+        bg="#93c5fd",
+        activebackground="#60a5fa",
+        activeforeground="#0f172a",
+        relief="flat",
+        padx=12,
+        pady=6,
+    )
+    open_creator_button.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+
     rag_status_var = tk.StringVar(value="RAG: unknown")
     rag_status = tk.Label(
         left_card,
@@ -116,7 +130,7 @@ def build_character_view(parent: tk.Frame, *, character_path: str) -> CharacterV
         anchor="w",
         font=("Trebuchet MS", 9),
     )
-    rag_status.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+    rag_status.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
     right_card = tk.Frame(frame, bg="#111827", padx=18, pady=16)
     right_card.grid(row=0, column=1, sticky="nsew")
@@ -184,4 +198,5 @@ def build_character_view(parent: tk.Frame, *, character_path: str) -> CharacterV
         preset_status_var=preset_status_var,
         preset_preview_text=preset_preview_text,
         open_admin_button=None,
+        open_creator_button=open_creator_button,
     )

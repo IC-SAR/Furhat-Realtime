@@ -23,8 +23,25 @@ Tkinter UI to hold-to-listen and stream responses back to the robot.
 ### Supported entrypoints
 - Source launcher: `python scripts/run.py`
 - Package module entrypoint: `python -m Furhat.main`
+- Character creator app: `python scripts/character_creator.py`
+- Codespaces character creator (browser UI): `./scripts/run_character_creator_codespaces.sh`
 
 Do not run internal source files directly, for example `python src/Furhat/main.py`.
+
+### Running Character Creator in Codespaces
+If you are in a headless Codespaces terminal, run:
+
+```bash
+./scripts/run_character_creator_codespaces.sh
+```
+
+Then forward port `6080` and open `/vnc.html` on that forwarded URL.
+
+Dependencies (one-time in container):
+
+```bash
+sudo apt-get install -y novnc websockify x11vnc fluxbox xvfb
+```
 
 ## Build the Windows exe
 ```bash
