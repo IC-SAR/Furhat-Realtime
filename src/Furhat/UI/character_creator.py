@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import asyncio
+import threading
 import tkinter as tk
 from copy import deepcopy
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
+
+from .. import paths, settings_store
 
 DEFAULT_CHARACTER_TEMPLATE: dict[str, Any] = {
     "id": "",
@@ -31,7 +35,7 @@ DEFAULT_CHARACTER_TEMPLATE: dict[str, Any] = {
     "actionSchema": [],
 }
 
-FACE_OPTIONS = [
+FALLBACK_FACE_OPTIONS = [
     "adult-Alex",
     "adult-Isabel",
     "adult-Sam",
@@ -41,7 +45,7 @@ FACE_OPTIONS = [
     "child-Maya",
 ]
 
-VOICE_OPTIONS = [
+FALLBACK_VOICE_OPTIONS = [
     "English (United States): AndrewNeural (Male, Microsoft Azure)",
     "English (United States): JennyNeural (Female, Microsoft Azure)",
     "English (United States): GuyNeural (Male, Microsoft Azure)",
@@ -49,11 +53,11 @@ VOICE_OPTIONS = [
     "English (United Kingdom): SoniaNeural (Female, Microsoft Azure)",
 ]
 
-LANGUAGE_OPTIONS = ["en-US", "en-GB", "es-ES", "fr-FR", "de-DE", "it-IT"]
-GENDER_OPTIONS = ["Male", "Female", "Neutral"]
-CATEGORY_OPTIONS = ["Private", "Public"]
-INITIATIVE_OPTIONS = ["User", "System"]
-DISENGAGEMENT_OPTIONS = ["Low", "Medium", "High"]
+FALLBACK_LANGUAGE_OPTIONS = ["en-US", "en-GB", "es-ES", "fr-FR", "de-DE", "it-IT"]
+FALLBACK_GENDER_OPTIONS = ["Male", "Female", "Neutral"]
+FALLBACK_CATEGORY_OPTIONS = ["Private", "Public"]
+FALLBACK_INITIATIVE_OPTIONS = ["User", "System"]
+FALLBACK_DISENGAGEMENT_OPTIONS = ["Low", "Medium", "High"]
 
 
 def _dedupe_options(options: list[str], value: str) -> list[str]:
@@ -61,6 +65,168 @@ def _dedupe_options(options: list[str], value: str) -> list[str]:
     if value and value not in normalized:
         normalized = [value] + normalized
     return normalized
+
+
+def _coerce_payload(value: Any) -> Any:
+    if isinstance(value, (dict, list, tuple, str, int, float, bool)) or value is None:
+        return value
+    if hasattr(value, "to_dict"):
+        try:
+            return value.to_dict()
+        except Exception:
+            pass
+    if hasattr(value, "__dict__"):
+        try:
+            return vars(value)
+        except Exception:
+            pass
+    return value
+
+
+def _extract_face_ids(payload: Any) -> list[str]:
+    data = _coerce_payload(payload)
+    values: list[str] = []
+
+    def _add(raw: Any) -> None:
+        text = str(raw or "").strip()
+        if text and text not in values:
+            values.append(text)
+
+    if isinstance(data, dict):
+        # Most common response shape from request_face_status.
+        face_list = data.get("face_list")
+        if isinstance(face_list, list):
+            for item in face_list:
+                parsed = _coerce_payload(item)
+                if isinstance(parsed, str):
+                    _add(parsed)
+                elif isinstance(parsed, dict):
+                    _add(parsed.get("face_id") or parsed.get("faceId") or parsed.get("id") or parsed.get("name"))
+        _add(data.get("face_id") or data.get("faceId"))
+    elif isinstance(data, list):
+        for item in data:
+            parsed = _coerce_payload(item)
+            if isinstance(parsed, str):
+                _add(parsed)
+            elif isinstance(parsed, dict):
+                _add(parsed.get("face_id") or parsed.get("faceId") or parsed.get("id") or parsed.get("name"))
+
+    return values
+
+
+def _extract_voice_options(payload: Any) -> tuple[list[str], list[str], list[str]]:
+    data = _coerce_payload(payload)
+    voices: list[str] = []
+    languages: list[str] = []
+    genders: list[str] = []
+
+    def _add_text(target: list[str], raw: Any) -> None:
+        text = str(raw or "").strip()
+        if text and text not in target:
+            target.append(text)
+
+    def _consume(item: Any) -> None:
+        parsed = _coerce_payload(item)
+        if isinstance(parsed, str):
+            _add_text(voices, parsed)
+            return
+        if not isinstance(parsed, dict):
+            return
+        _add_text(
+            voices,
+            parsed.get("voice_id") or parsed.get("voiceId") or parsed.get("id") or parsed.get("name"),
+        )
+        _add_text(languages, parsed.get("language") or parsed.get("locale") or parsed.get("input_language"))
+        _add_text(genders, parsed.get("gender"))
+
+    if isinstance(data, dict):
+        voice_list = data.get("voice_list")
+        if isinstance(voice_list, list):
+            for item in voice_list:
+                _consume(item)
+        _consume(data)
+    elif isinstance(data, list):
+        for item in data:
+            _consume(item)
+
+    return voices, languages, genders
+
+
+def _discover_character_field_options(app_root: Path) -> tuple[list[str], list[str], list[str]]:
+    categories: list[str] = []
+    initiatives: list[str] = []
+    disengagements: list[str] = []
+
+    def _add(target: list[str], raw: Any) -> None:
+        text = str(raw or "").strip()
+        if text and text not in target:
+            target.append(text)
+
+    for path in sorted(app_root.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict) or "externalLinks" not in payload:
+            continue
+        _add(categories, payload.get("category"))
+        _add(initiatives, payload.get("initiative"))
+        _add(disengagements, payload.get("disengagementThreshold"))
+    return categories, initiatives, disengagements
+
+
+def fetch_face_options(robot_ip: str, *, timeout_sec: float = 6.0) -> list[str]:
+    try:
+        from furhat_realtime_api import AsyncFurhatClient
+    except Exception:
+        return []
+
+    async def _query() -> list[str]:
+        client = AsyncFurhatClient(robot_ip)
+        await asyncio.wait_for(client.connect(), timeout=timeout_sec)
+        try:
+            response = await asyncio.wait_for(
+                client.request_face_status(face_id=True, face_list=True),
+                timeout=timeout_sec,
+            )
+        finally:
+            try:
+                await asyncio.wait_for(client.disconnect(), timeout=2.0)
+            except Exception:
+                pass
+        return _extract_face_ids(response)
+
+    try:
+        return asyncio.run(_query())
+    except Exception:
+        return []
+
+
+def fetch_voice_options(robot_ip: str, *, timeout_sec: float = 6.0) -> tuple[list[str], list[str], list[str]]:
+    try:
+        from furhat_realtime_api import AsyncFurhatClient
+    except Exception:
+        return [], [], []
+
+    async def _query() -> tuple[list[str], list[str], list[str]]:
+        client = AsyncFurhatClient(robot_ip)
+        await asyncio.wait_for(client.connect(), timeout=timeout_sec)
+        try:
+            response = await asyncio.wait_for(
+                client.request_voice_status(voice_id=True, voice_list=True),
+                timeout=timeout_sec,
+            )
+        finally:
+            try:
+                await asyncio.wait_for(client.disconnect(), timeout=2.0)
+            except Exception:
+                pass
+        return _extract_voice_options(response)
+
+    try:
+        return asyncio.run(_query())
+    except Exception:
+        return [], [], []
 
 
 def _to_bool(value: Any, *, default: bool = False) -> bool:
@@ -187,9 +353,17 @@ class CharacterCreatorWindow:
         self.status_var = tk.StringVar(value="Load a character JSON file or start from template.")
         self.action_schema_text: tk.Text | None = None
         self.links_listbox: tk.Listbox | None = None
+        self.voice_combo: ttk.Combobox | None = None
+        self.language_combo: ttk.Combobox | None = None
+        self.gender_combo: ttk.Combobox | None = None
+        self.face_combo: ttk.Combobox | None = None
+        self.category_combo: ttk.Combobox | None = None
+        self.initiative_combo: ttk.Combobox | None = None
+        self.disengagement_combo: ttk.Combobox | None = None
 
         self._build_ui()
         self._populate_from_payload(deepcopy(DEFAULT_CHARACTER_TEMPLATE))
+        self._load_dynamic_options_async()
         if self.current_path and self.current_path.exists():
             self._load_from_path(self.current_path)
 
@@ -281,18 +455,24 @@ class CharacterCreatorWindow:
         self._add_entry(form, 3, "Description", self.description_value)
         self._add_entry(form, 4, "Opening Line", self.opening_line_value)
 
-        self._add_combo(form, 0, "Voice", self.voice_id_value, VOICE_OPTIONS)
-        self._add_combo(form, 1, "Input Language", self.input_language_value, LANGUAGE_OPTIONS)
-        self._add_combo(form, 2, "Gender", self.gender_value, GENDER_OPTIONS)
-        self._add_combo(form, 3, "Face", self.face_id_value, FACE_OPTIONS)
-        self._add_combo(form, 4, "Category", self.category_value, CATEGORY_OPTIONS)
-        self._add_combo(form, 5, "Initiative", self.initiative_value, INITIATIVE_OPTIONS)
-        self._add_combo(
+        self.voice_combo = self._add_combo(form, 0, "Voice", self.voice_id_value, FALLBACK_VOICE_OPTIONS)
+        self.language_combo = self._add_combo(
+            form, 1, "Input Language", self.input_language_value, FALLBACK_LANGUAGE_OPTIONS
+        )
+        self.gender_combo = self._add_combo(form, 2, "Gender", self.gender_value, FALLBACK_GENDER_OPTIONS)
+        self.face_combo = self._add_combo(form, 3, "Face", self.face_id_value, FALLBACK_FACE_OPTIONS)
+        self.category_combo = self._add_combo(
+            form, 4, "Category", self.category_value, FALLBACK_CATEGORY_OPTIONS
+        )
+        self.initiative_combo = self._add_combo(
+            form, 5, "Initiative", self.initiative_value, FALLBACK_INITIATIVE_OPTIONS
+        )
+        self.disengagement_combo = self._add_combo(
             form,
             6,
             "Disengagement",
             self.disengagement_value,
-            DISENGAGEMENT_OPTIONS,
+            FALLBACK_DISENGAGEMENT_OPTIONS,
         )
 
         links_label = tk.Label(
@@ -385,7 +565,7 @@ class CharacterCreatorWindow:
         label: str,
         variable: tk.StringVar,
         options: list[str],
-    ) -> None:
+    ) -> ttk.Combobox:
         tk.Label(
             parent,
             text=label,
@@ -396,6 +576,113 @@ class CharacterCreatorWindow:
         ).grid(row=row, column=2, sticky="w", pady=6)
         combo = ttk.Combobox(parent, textvariable=variable, values=options, state="readonly")
         combo.grid(row=row, column=3, sticky="ew", pady=6)
+        return combo
+
+    def _set_face_options(self, options: list[str]) -> None:
+        current = self.face_id_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_FACE_OPTIONS, current)
+        if self.face_combo is not None:
+            self.face_combo.configure(values=normalized)
+
+    def _set_voice_options(self, options: list[str]) -> None:
+        current = self.voice_id_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_VOICE_OPTIONS, current)
+        if self.voice_combo is not None:
+            self.voice_combo.configure(values=normalized)
+
+    def _set_language_options(self, options: list[str]) -> None:
+        current = self.input_language_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_LANGUAGE_OPTIONS, current)
+        if self.language_combo is not None:
+            self.language_combo.configure(values=normalized)
+
+    def _set_gender_options(self, options: list[str]) -> None:
+        current = self.gender_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_GENDER_OPTIONS, current)
+        if self.gender_combo is not None:
+            self.gender_combo.configure(values=normalized)
+
+    def _set_category_options(self, options: list[str]) -> None:
+        current = self.category_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_CATEGORY_OPTIONS, current)
+        if self.category_combo is not None:
+            self.category_combo.configure(values=normalized)
+
+    def _set_initiative_options(self, options: list[str]) -> None:
+        current = self.initiative_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_INITIATIVE_OPTIONS, current)
+        if self.initiative_combo is not None:
+            self.initiative_combo.configure(values=normalized)
+
+    def _set_disengagement_options(self, options: list[str]) -> None:
+        current = self.disengagement_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_DISENGAGEMENT_OPTIONS, current)
+        if self.disengagement_combo is not None:
+            self.disengagement_combo.configure(values=normalized)
+
+    def _load_dynamic_options_async(self) -> None:
+        self._set_voice_options(FALLBACK_VOICE_OPTIONS)
+        self._set_language_options(FALLBACK_LANGUAGE_OPTIONS)
+        self._set_gender_options(FALLBACK_GENDER_OPTIONS)
+        self._set_face_options(FALLBACK_FACE_OPTIONS)
+        self._set_category_options(FALLBACK_CATEGORY_OPTIONS)
+        self._set_initiative_options(FALLBACK_INITIATIVE_OPTIONS)
+        self._set_disengagement_options(FALLBACK_DISENGAGEMENT_OPTIONS)
+
+        def _worker() -> None:
+            try:
+                app_settings = settings_store.load_settings()
+                ip_address = app_settings.ip
+            except Exception:
+                ip_address = settings_store.DEFAULT_IP
+            try:
+                app_root = paths.get_app_root()
+            except Exception:
+                app_root = Path.cwd()
+
+            faces = fetch_face_options(ip_address)
+            voices, languages, genders = fetch_voice_options(ip_address)
+            categories, initiatives, disengagements = _discover_character_field_options(app_root)
+
+            def _apply() -> None:
+                self._set_voice_options(voices)
+                self._set_language_options(languages)
+                self._set_gender_options(genders)
+                if faces:
+                    self._set_face_options(faces)
+                self._set_category_options(categories)
+                self._set_initiative_options(initiatives)
+                self._set_disengagement_options(disengagements)
+
+                bits: list[str] = []
+                if faces:
+                    bits.append(f"faces {len(faces)}")
+                if voices:
+                    bits.append(f"voices {len(voices)}")
+                if categories or initiatives or disengagements:
+                    bits.append("character fields")
+                if bits:
+                    self.status_var.set("Loaded dynamic options: " + ", ".join(bits) + ".")
+                else:
+                    self.status_var.set("Could not fetch dynamic options; using fallback lists.")
+
+            self.window.after(0, _apply)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _load_from_path(self, path: Path) -> None:
         try:

@@ -16,6 +16,20 @@ from Furhat.UI import character_creator  # noqa: E402
 
 
 class CharacterCreatorTests(unittest.TestCase):
+    def test_extract_face_ids_from_furhat_response_shape(self) -> None:
+        payload = {
+            "face_id": "adult-Alex",
+            "face_list": [
+                {"face_id": "adult-Alex"},
+                {"face_id": "adult-Yumi"},
+                {"id": "child-Maya"},
+            ],
+        }
+
+        face_ids = character_creator._extract_face_ids(payload)  # noqa: SLF001
+
+        self.assertEqual(face_ids, ["adult-Alex", "adult-Yumi", "child-Maya"])
+
     def test_normalize_character_payload_keeps_expected_schema(self) -> None:
         payload = {
             "id": "demo-id",
