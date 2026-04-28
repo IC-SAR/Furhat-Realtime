@@ -59,6 +59,90 @@ class CharacterCreatorTests(unittest.TestCase):
 
         self.assertEqual(face_ids, ["adult-Alex", "adult-Yumi", "child-Maya"])
 
+    def test_extract_character_field_options_from_nested_payload(self) -> None:
+        payload = {
+            "type": "response.voice.status",
+            "character": {
+                "category": ["Private", "Public"],
+                "initiative": "User",
+                "disengagementThreshold": "Medium",
+            },
+            "extra": {
+                "categories": ["Public", "Partner"],
+                "initiatives": ["System"],
+                "disengagement_thresholds": ["High", "Medium"],
+            },
+        }
+
+        categories, initiatives, disengagements = character_creator._extract_character_field_options(  # noqa: SLF001
+            payload
+        )
+
+        self.assertEqual(categories, ["Private", "Public", "Partner"])
+        self.assertEqual(initiatives, ["User", "System"])
+        self.assertEqual(disengagements, ["Medium", "High"])
+
+    def test_extract_character_field_options_from_object_lists(self) -> None:
+        payload = {
+            "categories": [
+                {"id": "Private"},
+                {"name": "Public"},
+                {"label": "Partner"},
+            ],
+            "initiatives": [
+                {"value": "User"},
+                {"key": "System"},
+            ],
+            "disengagement_thresholds": [
+                {"name": "Low"},
+                {"value": "Medium"},
+                {"id": "High"},
+            ],
+        }
+
+        categories, initiatives, disengagements = character_creator._extract_character_field_options(  # noqa: SLF001
+            payload
+        )
+
+        self.assertEqual(categories, ["Private", "Public", "Partner"])
+        self.assertEqual(initiatives, ["User", "System"])
+        self.assertEqual(disengagements, ["Low", "Medium", "High"])
+
+    def test_merge_option_sources_deduplicates_while_preserving_order(self) -> None:
+        merged = character_creator._merge_option_sources(  # noqa: SLF001
+            ["Private", "Public"],
+            ["Public", "Partner"],
+            ["", "Private", "System"],
+        )
+        self.assertEqual(merged, ["Private", "Public", "Partner", "System"])
+
+    def test_category_like_fields_keep_fallback_choices_with_single_dynamic_value(self) -> None:
+        category_values = character_creator._dedupe_options(  # noqa: SLF001
+            character_creator._merge_option_sources(  # noqa: SLF001
+                ["Private"],
+                character_creator.FALLBACK_CATEGORY_OPTIONS,
+            ),
+            "Private",
+        )
+        initiative_values = character_creator._dedupe_options(  # noqa: SLF001
+            character_creator._merge_option_sources(  # noqa: SLF001
+                ["User"],
+                character_creator.FALLBACK_INITIATIVE_OPTIONS,
+            ),
+            "User",
+        )
+        disengagement_values = character_creator._dedupe_options(  # noqa: SLF001
+            character_creator._merge_option_sources(  # noqa: SLF001
+                ["Medium"],
+                character_creator.FALLBACK_DISENGAGEMENT_OPTIONS,
+            ),
+            "Medium",
+        )
+
+        self.assertEqual(category_values, ["Private", "Public"])
+        self.assertEqual(initiative_values, ["User", "System"])
+        self.assertEqual(disengagement_values, ["Medium", "Low", "High"])
+
     def test_normalize_character_payload_keeps_expected_schema(self) -> None:
         payload = {
             "id": "demo-id",

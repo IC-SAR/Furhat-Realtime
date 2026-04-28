@@ -6,9 +6,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.stderr.write("character_creator bootstrap: module imported\n")
+sys.stderr.flush()
 
 
 def main() -> None:
+    print("character_creator bootstrap: entered main()", flush=True)
     sys.path.insert(0, str(ROOT / "src"))
     from Furhat.UI.character_creator import launch_character_creator
 

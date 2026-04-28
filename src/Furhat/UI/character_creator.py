@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import os
 import threading
 import tkinter as tk
 from copy import deepcopy
@@ -58,6 +59,14 @@ FALLBACK_GENDER_OPTIONS = ["Male", "Female", "Neutral"]
 FALLBACK_CATEGORY_OPTIONS = ["Private", "Public"]
 FALLBACK_INITIATIVE_OPTIONS = ["User", "System"]
 FALLBACK_DISENGAGEMENT_OPTIONS = ["Low", "Medium", "High"]
+
+
+def _debug_enabled() -> bool:
+    return os.getenv("CHARACTER_CREATOR_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _debug_print(message: str) -> None:
+    print(message, flush=True)
 
 
 def _dedupe_options(options: list[str], value: str) -> list[str]:
@@ -152,6 +161,101 @@ def _extract_voice_options(payload: Any) -> tuple[list[str], list[str], list[str
     return voices, languages, genders
 
 
+def _extract_character_field_options(payload: Any) -> tuple[list[str], list[str], list[str]]:
+    data = _coerce_payload(payload)
+    categories: list[str] = []
+    initiatives: list[str] = []
+    disengagements: list[str] = []
+
+    category_keys = {"category", "categories"}
+    initiative_keys = {"initiative", "initiatives"}
+    disengagement_keys = {
+        "disengagementthreshold",
+        "disengagement",
+        "disengagements",
+        "disengagementthresholds",
+    }
+
+    option_value_keys = {
+        "id",
+        "name",
+        "value",
+        "label",
+        "key",
+        "option",
+        "type",
+        "category",
+        "initiative",
+        "disengagementthreshold",
+        "disengagement",
+        "disengagementthresholds",
+    }
+
+    def _normalize_key(key: str) -> str:
+        return str(key or "").strip().lower().replace("-", "").replace("_", "")
+
+    def _add(target: list[str], raw: Any) -> None:
+        text = str(raw or "").strip()
+        if text and text not in target:
+            target.append(text)
+
+    def _consume(key: str, value: Any) -> None:
+        target: list[str] | None = None
+        normalized_key = _normalize_key(key)
+        if normalized_key in category_keys:
+            target = categories
+        elif normalized_key in initiative_keys:
+            target = initiatives
+        elif normalized_key in disengagement_keys:
+            target = disengagements
+        if target is None:
+            return
+        parsed = _coerce_payload(value)
+
+        if isinstance(parsed, dict):
+            for nested_key, nested_value in parsed.items():
+                nested_normalized_key = _normalize_key(str(nested_key))
+                if nested_normalized_key in option_value_keys:
+                    _add(target, nested_value)
+
+        if isinstance(parsed, list):
+            for item in parsed:
+                coerced_item = _coerce_payload(item)
+                if isinstance(coerced_item, (str, int, float, bool)):
+                    _add(target, coerced_item)
+                elif isinstance(coerced_item, dict):
+                    for item_key, item_value in coerced_item.items():
+                        item_normalized_key = _normalize_key(str(item_key))
+                        if item_normalized_key in option_value_keys:
+                            _add(target, item_value)
+        elif isinstance(parsed, (str, int, float, bool)):
+            _add(target, parsed)
+
+    def _walk(node: Any) -> None:
+        parsed = _coerce_payload(node)
+        if isinstance(parsed, dict):
+            for key, value in parsed.items():
+                _consume(str(key), value)
+                _walk(value)
+            return
+        if isinstance(parsed, list):
+            for item in parsed:
+                _walk(item)
+
+    _walk(data)
+    return categories, initiatives, disengagements
+
+
+def _merge_option_sources(*sources: list[str]) -> list[str]:
+    merged: list[str] = []
+    for source in sources:
+        for item in source:
+            text = str(item or "").strip()
+            if text and text not in merged:
+                merged.append(text)
+    return merged
+
+
 def _discover_character_field_options(app_root: Path) -> tuple[list[str], list[str], list[str]]:
     categories: list[str] = []
     initiatives: list[str] = []
@@ -176,19 +280,26 @@ def _discover_character_field_options(app_root: Path) -> tuple[list[str], list[s
 
 
 def fetch_face_options(robot_ip: str, *, timeout_sec: float = 6.0) -> list[str]:
+    debug_enabled = _debug_enabled()
     try:
         from furhat_realtime_api import AsyncFurhatClient
     except Exception:
+        if debug_enabled:
+            _debug_print("Furhat face status debug: furhat_realtime_api import failed; using fallback faces.")
         return []
 
     async def _query() -> list[str]:
         client = AsyncFurhatClient(robot_ip)
+        if debug_enabled:
+            _debug_print(f"Furhat face status debug: connecting to {robot_ip}")
         await asyncio.wait_for(client.connect(), timeout=timeout_sec)
         try:
             response = await asyncio.wait_for(
                 client.request_face_status(face_id=True, face_list=True),
                 timeout=timeout_sec,
             )
+            if debug_enabled:
+                print(f"Furhat face status raw payload: {response!r}", flush=True)
         finally:
             try:
                 await asyncio.wait_for(client.disconnect(), timeout=2.0)
@@ -199,23 +310,32 @@ def fetch_face_options(robot_ip: str, *, timeout_sec: float = 6.0) -> list[str]:
     try:
         return asyncio.run(_query())
     except Exception:
+        if debug_enabled:
+            _debug_print(f"Furhat face status debug: request failed for {robot_ip}; using fallback faces.")
         return []
 
 
 def fetch_voice_options(robot_ip: str, *, timeout_sec: float = 6.0) -> tuple[list[str], list[str], list[str]]:
+    debug_enabled = _debug_enabled()
     try:
         from furhat_realtime_api import AsyncFurhatClient
     except Exception:
+        if debug_enabled:
+            _debug_print("Furhat voice status debug: furhat_realtime_api import failed; using fallback voices.")
         return [], [], []
 
     async def _query() -> tuple[list[str], list[str], list[str]]:
         client = AsyncFurhatClient(robot_ip)
+        if debug_enabled:
+            _debug_print(f"Furhat voice status debug: connecting to {robot_ip}")
         await asyncio.wait_for(client.connect(), timeout=timeout_sec)
         try:
             response = await asyncio.wait_for(
                 client.request_voice_status(voice_id=True, voice_list=True),
                 timeout=timeout_sec,
             )
+            if debug_enabled:
+                print(f"Furhat voice status raw payload: {response!r}", flush=True)
         finally:
             try:
                 await asyncio.wait_for(client.disconnect(), timeout=2.0)
@@ -226,6 +346,108 @@ def fetch_voice_options(robot_ip: str, *, timeout_sec: float = 6.0) -> tuple[lis
     try:
         return asyncio.run(_query())
     except Exception:
+        if debug_enabled:
+            _debug_print(f"Furhat voice status debug: request failed for {robot_ip}; using fallback voices.")
+        return [], [], []
+
+
+def fetch_character_field_options(
+    robot_ip: str,
+    *,
+    timeout_sec: float = 6.0,
+) -> tuple[list[str], list[str], list[str]]:
+    debug_enabled = _debug_enabled()
+    try:
+        from furhat_realtime_api import AsyncFurhatClient
+    except Exception:
+        if debug_enabled:
+            _debug_print("Furhat field options debug: furhat_realtime_api import failed; using fallback lists.")
+        return [], [], []
+
+    async def _query() -> tuple[list[str], list[str], list[str]]:
+        client = AsyncFurhatClient(robot_ip)
+        if debug_enabled:
+            _debug_print(f"Furhat field options debug: connecting to {robot_ip}")
+        await asyncio.wait_for(client.connect(), timeout=timeout_sec)
+        responses: list[Any] = []
+        try:
+            try:
+                response = await asyncio.wait_for(
+                    client.request_voice_status(voice_id=True, voice_list=True),
+                    timeout=timeout_sec,
+                )
+                if debug_enabled:
+                    print(f"Furhat voice_status field options raw payload: {response!r}", flush=True)
+                responses.append(response)
+            except Exception:
+                pass
+            try:
+                response = await asyncio.wait_for(
+                    client.request_face_status(face_id=True, face_list=True),
+                    timeout=timeout_sec,
+                )
+                if debug_enabled:
+                    print(f"Furhat face_status field options raw payload: {response!r}", flush=True)
+                responses.append(response)
+            except Exception:
+                pass
+            try:
+                response = await asyncio.wait_for(
+                    client.request_voice_config(),
+                    timeout=timeout_sec,
+                )
+                if debug_enabled:
+                    print(f"Furhat voice_config field options raw payload: {response!r}", flush=True)
+                responses.append(response)
+            except Exception:
+                pass
+            try:
+                response = await asyncio.wait_for(
+                    client.request_listen_config(),
+                    timeout=timeout_sec,
+                )
+                if debug_enabled:
+                    print(f"Furhat listen_config field options raw payload: {response!r}", flush=True)
+                responses.append(response)
+            except Exception:
+                pass
+        finally:
+            try:
+                await asyncio.wait_for(client.disconnect(), timeout=2.0)
+            except Exception:
+                pass
+
+        categories: list[str] = []
+        initiatives: list[str] = []
+        disengagements: list[str] = []
+        for idx, payload in enumerate(responses):
+            parsed_categories, parsed_initiatives, parsed_disengagements = _extract_character_field_options(
+                payload
+            )
+            if debug_enabled:
+                print(
+                    f"Extracted from response {idx}: categories={parsed_categories}, "
+                    f"initiatives={parsed_initiatives}, disengagements={parsed_disengagements}",
+                    flush=True,
+                )
+            categories = _merge_option_sources(categories, parsed_categories)
+            initiatives = _merge_option_sources(initiatives, parsed_initiatives)
+            disengagements = _merge_option_sources(disengagements, parsed_disengagements)
+
+        if debug_enabled:
+            print(
+                f"Final merged field options: categories={categories}, "
+                f"initiatives={initiatives}, disengagements={disengagements}",
+                flush=True,
+            )
+
+        return categories, initiatives, disengagements
+
+    try:
+        return asyncio.run(_query())
+    except Exception:
+        if debug_enabled:
+            _debug_print(f"Furhat field options debug: request failed for {robot_ip}; using fallback lists.")
         return [], [], []
 
 
@@ -483,10 +705,10 @@ class CharacterCreatorWindow:
             font=("Trebuchet MS", 9),
             anchor="w",
         )
-        links_label.grid(row=5, column=0, sticky="w", pady=(12, 4))
+        links_label.grid(row=7, column=0, sticky="w", pady=(12, 4))
 
         links_frame = tk.Frame(form, bg="#111827")
-        links_frame.grid(row=6, column=0, columnspan=4, sticky="nsew")
+        links_frame.grid(row=8, column=0, columnspan=4, sticky="nsew")
         links_frame.grid_columnconfigure(0, weight=1)
         links_frame.grid_rowconfigure(0, weight=1)
 
@@ -505,7 +727,7 @@ class CharacterCreatorWindow:
         self.links_listbox.configure(yscrollcommand=links_scroll.set)
 
         link_buttons = tk.Frame(form, bg="#111827")
-        link_buttons.grid(row=7, column=0, columnspan=4, sticky="ew", pady=(8, 0))
+        link_buttons.grid(row=9, column=0, columnspan=4, sticky="ew", pady=(8, 0))
 
         tk.Button(
             link_buttons,
@@ -612,25 +834,22 @@ class CharacterCreatorWindow:
 
     def _set_category_options(self, options: list[str]) -> None:
         current = self.category_value.get().strip()
-        normalized = _dedupe_options(options, current)
-        if not normalized:
-            normalized = _dedupe_options(FALLBACK_CATEGORY_OPTIONS, current)
+        normalized = _merge_option_sources(options, FALLBACK_CATEGORY_OPTIONS)
+        normalized = _dedupe_options(normalized, current)
         if self.category_combo is not None:
             self.category_combo.configure(values=normalized)
 
     def _set_initiative_options(self, options: list[str]) -> None:
         current = self.initiative_value.get().strip()
-        normalized = _dedupe_options(options, current)
-        if not normalized:
-            normalized = _dedupe_options(FALLBACK_INITIATIVE_OPTIONS, current)
+        normalized = _merge_option_sources(options, FALLBACK_INITIATIVE_OPTIONS)
+        normalized = _dedupe_options(normalized, current)
         if self.initiative_combo is not None:
             self.initiative_combo.configure(values=normalized)
 
     def _set_disengagement_options(self, options: list[str]) -> None:
         current = self.disengagement_value.get().strip()
-        normalized = _dedupe_options(options, current)
-        if not normalized:
-            normalized = _dedupe_options(FALLBACK_DISENGAGEMENT_OPTIONS, current)
+        normalized = _merge_option_sources(options, FALLBACK_DISENGAGEMENT_OPTIONS)
+        normalized = _dedupe_options(normalized, current)
         if self.disengagement_combo is not None:
             self.disengagement_combo.configure(values=normalized)
 
@@ -656,7 +875,16 @@ class CharacterCreatorWindow:
 
             faces = fetch_face_options(ip_address)
             voices, languages, genders = fetch_voice_options(ip_address)
-            categories, initiatives, disengagements = _discover_character_field_options(app_root)
+            furhat_categories, furhat_initiatives, furhat_disengagements = fetch_character_field_options(
+                ip_address
+            )
+            discovered_categories, discovered_initiatives, discovered_disengagements = (
+                _discover_character_field_options(app_root)
+            )
+
+            categories = _merge_option_sources(furhat_categories, discovered_categories)
+            initiatives = _merge_option_sources(furhat_initiatives, discovered_initiatives)
+            disengagements = _merge_option_sources(furhat_disengagements, discovered_disengagements)
 
             def _apply() -> None:
                 self._set_voice_options(voices)
@@ -673,7 +901,9 @@ class CharacterCreatorWindow:
                     bits.append(f"faces {len(faces)}")
                 if voices:
                     bits.append(f"voices {len(voices)}")
-                if categories or initiatives or disengagements:
+                if furhat_categories or furhat_initiatives or furhat_disengagements:
+                    bits.append("character fields (Furhat)")
+                elif categories or initiatives or disengagements:
                     bits.append("character fields")
                 if bits:
                     self.status_var.set("Loaded dynamic options: " + ", ".join(bits) + ".")
