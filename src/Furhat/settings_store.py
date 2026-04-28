@@ -10,7 +10,7 @@ from . import paths
 
 DEFAULT_MODEL = "gemma3:4b"
 DEFAULT_TEMPERATURE = 0.7
-DEFAULT_IP = "l127.0.0.1."
+DEFAULT_IP = "localhost"
 DEFAULT_PROVIDER = "ollama"
 DEFAULT_API_BASE_URL = ""
 DEFAULT_API_KEY = ""
