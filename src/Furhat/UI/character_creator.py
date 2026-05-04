@@ -12,6 +12,8 @@ from typing import Any
 
 from .. import paths, settings_store
 
+FURHAT_REALTIME_WS_URL = "ws://localhost:54321/ws"
+
 DEFAULT_CHARACTER_TEMPLATE: dict[str, Any] = {
     "id": "",
     "name": "",
@@ -279,7 +281,7 @@ def _discover_character_field_options(app_root: Path) -> tuple[list[str], list[s
     return categories, initiatives, disengagements
 
 
-def fetch_face_options(robot_ip: str, *, timeout_sec: float = 6.0) -> list[str]:
+def fetch_face_options(*, timeout_sec: float = 6.0) -> list[str]:
     debug_enabled = _debug_enabled()
     try:
         from furhat_realtime_api import AsyncFurhatClient
@@ -289,9 +291,9 @@ def fetch_face_options(robot_ip: str, *, timeout_sec: float = 6.0) -> list[str]:
         return []
 
     async def _query() -> list[str]:
-        client = AsyncFurhatClient(robot_ip)
+        client = AsyncFurhatClient(FURHAT_REALTIME_WS_URL)
         if debug_enabled:
-            _debug_print(f"Furhat face status debug: connecting to {robot_ip}")
+            _debug_print(f"Furhat face status debug: connecting to {FURHAT_REALTIME_WS_URL}")
         await asyncio.wait_for(client.connect(), timeout=timeout_sec)
         try:
             response = await asyncio.wait_for(
@@ -311,11 +313,11 @@ def fetch_face_options(robot_ip: str, *, timeout_sec: float = 6.0) -> list[str]:
         return asyncio.run(_query())
     except Exception:
         if debug_enabled:
-            _debug_print(f"Furhat face status debug: request failed for {robot_ip}; using fallback faces.")
+            _debug_print(f"Furhat face status debug: request failed for {FURHAT_REALTIME_WS_URL}; using fallback faces.")
         return []
 
 
-def fetch_voice_options(robot_ip: str, *, timeout_sec: float = 6.0) -> tuple[list[str], list[str], list[str]]:
+def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[str], list[str]]:
     debug_enabled = _debug_enabled()
     try:
         from furhat_realtime_api import AsyncFurhatClient
@@ -325,9 +327,9 @@ def fetch_voice_options(robot_ip: str, *, timeout_sec: float = 6.0) -> tuple[lis
         return [], [], []
 
     async def _query() -> tuple[list[str], list[str], list[str]]:
-        client = AsyncFurhatClient(robot_ip)
+        client = AsyncFurhatClient(FURHAT_REALTIME_WS_URL)
         if debug_enabled:
-            _debug_print(f"Furhat voice status debug: connecting to {robot_ip}")
+            _debug_print(f"Furhat voice status debug: connecting to {FURHAT_REALTIME_WS_URL}")
         await asyncio.wait_for(client.connect(), timeout=timeout_sec)
         try:
             response = await asyncio.wait_for(
@@ -347,12 +349,11 @@ def fetch_voice_options(robot_ip: str, *, timeout_sec: float = 6.0) -> tuple[lis
         return asyncio.run(_query())
     except Exception:
         if debug_enabled:
-            _debug_print(f"Furhat voice status debug: request failed for {robot_ip}; using fallback voices.")
+            _debug_print(f"Furhat voice status debug: request failed for {FURHAT_REALTIME_WS_URL}; using fallback voices.")
         return [], [], []
 
 
 def fetch_character_field_options(
-    robot_ip: str,
     *,
     timeout_sec: float = 6.0,
 ) -> tuple[list[str], list[str], list[str]]:
@@ -365,9 +366,9 @@ def fetch_character_field_options(
         return [], [], []
 
     async def _query() -> tuple[list[str], list[str], list[str]]:
-        client = AsyncFurhatClient(robot_ip)
+        client = AsyncFurhatClient(FURHAT_REALTIME_WS_URL)
         if debug_enabled:
-            _debug_print(f"Furhat field options debug: connecting to {robot_ip}")
+            _debug_print(f"Furhat field options debug: connecting to {FURHAT_REALTIME_WS_URL}")
         await asyncio.wait_for(client.connect(), timeout=timeout_sec)
         responses: list[Any] = []
         try:
@@ -447,7 +448,7 @@ def fetch_character_field_options(
         return asyncio.run(_query())
     except Exception:
         if debug_enabled:
-            _debug_print(f"Furhat field options debug: request failed for {robot_ip}; using fallback lists.")
+            _debug_print(f"Furhat field options debug: request failed for {FURHAT_REALTIME_WS_URL}; using fallback lists.")
         return [], [], []
 
 
@@ -864,20 +865,13 @@ class CharacterCreatorWindow:
 
         def _worker() -> None:
             try:
-                app_settings = settings_store.load_settings()
-                ip_address = app_settings.ip
-            except Exception:
-                ip_address = settings_store.DEFAULT_IP
-            try:
                 app_root = paths.get_app_root()
             except Exception:
                 app_root = Path.cwd()
 
-            faces = fetch_face_options(ip_address)
-            voices, languages, genders = fetch_voice_options(ip_address)
-            furhat_categories, furhat_initiatives, furhat_disengagements = fetch_character_field_options(
-                ip_address
-            )
+            faces = fetch_face_options()
+            voices, languages, genders = fetch_voice_options()
+            furhat_categories, furhat_initiatives, furhat_disengagements = fetch_character_field_options()
             discovered_categories, discovered_initiatives, discovered_disengagements = (
                 _discover_character_field_options(app_root)
             )
