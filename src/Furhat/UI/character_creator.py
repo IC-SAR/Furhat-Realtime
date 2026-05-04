@@ -301,27 +301,6 @@ def _discover_character_field_options(app_root: Path) -> tuple[list[str], list[s
     return categories, initiatives, disengagements
 
 
-async def _furhat_request(host: str, timeout_sec: float, extract_fn, *requests):
-    """Generic async request handler for Furhat realtime API."""
-    from furhat_realtime_api import AsyncFurhatClient
-    client = AsyncFurhatClient(host)
-    responses = []
-    try:
-        await asyncio.wait_for(client.connect(), timeout=timeout_sec)
-        for request_fn in requests:
-            try:
-                response = await asyncio.wait_for(request_fn(client), timeout=timeout_sec)
-                responses.append(response)
-            except Exception:
-                pass
-    finally:
-        try:
-            await asyncio.wait_for(client.disconnect(), timeout=2.0)
-        except Exception:
-            pass
-    return extract_fn(responses)
-
-
 def fetch_face_options(*, timeout_sec: float = 6.0) -> list[str]:
     debug_enabled = _debug_enabled()
     realtime_host = _resolve_realtime_host()
@@ -332,7 +311,18 @@ def fetch_face_options(*, timeout_sec: float = 6.0) -> list[str]:
             _debug_print("Furhat face status debug: furhat_realtime_api import failed; using fallback faces.")
         return []
     async def _query() -> list[str]:
-        return await _furhat_request(realtime_host, timeout_sec, _extract_face_ids, lambda c: c.request_face_status(face_id=True, face_list=True))
+        client = AsyncFurhatClient(realtime_host)
+        try:
+            await asyncio.wait_for(client.connect(), timeout=timeout_sec)
+            response = await asyncio.wait_for(client.request_face_status(face_id=True, face_list=True), timeout=timeout_sec)
+            return _extract_face_ids([response])
+        except Exception:
+            return []
+        finally:
+            try:
+                await asyncio.wait_for(client.disconnect(), timeout=2.0)
+            except Exception:
+                pass
     try:
         return asyncio.run(_query())
     except Exception:
@@ -351,7 +341,18 @@ def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[st
             _debug_print("Furhat voice status debug: furhat_realtime_api import failed; using fallback voices.")
         return [], [], []
     async def _query() -> tuple[list[str], list[str], list[str]]:
-        return await _furhat_request(realtime_host, timeout_sec, _extract_voice_options, lambda c: c.request_voice_status(voice_id=True, voice_list=True))
+        client = AsyncFurhatClient(realtime_host)
+        try:
+            await asyncio.wait_for(client.connect(), timeout=timeout_sec)
+            response = await asyncio.wait_for(client.request_voice_status(voice_id=True, voice_list=True), timeout=timeout_sec)
+            return _extract_voice_options([response])
+        except Exception:
+            return [], [], []
+        finally:
+            try:
+                await asyncio.wait_for(client.disconnect(), timeout=2.0)
+            except Exception:
+                pass
     try:
         return asyncio.run(_query())
     except Exception:
@@ -370,7 +371,14 @@ def fetch_character_field_options(*, timeout_sec: float = 6.0) -> tuple[list[str
             _debug_print("Furhat field options debug: furhat_realtime_api import failed; using fallback lists.")
         return [], [], []
     async def _query() -> tuple[list[str], list[str], list[str]]:
-        def _extract(responses):
+        client = AsyncFurhatClient(realtime_host)
+        try:
+            await asyncio.wait_for(client.connect(), timeout=timeout_sec)
+            voice_response = await asyncio.wait_for(client.request_voice_status(voice_id=True, voice_list=True), timeout=timeout_sec)
+            face_response = await asyncio.wait_for(client.request_face_status(face_id=True, face_list=True), timeout=timeout_sec)
+            voice_config_response = await asyncio.wait_for(client.request_voice_config(), timeout=timeout_sec)
+            listen_config_response = await asyncio.wait_for(client.request_listen_config(), timeout=timeout_sec)
+            responses = [voice_response, face_response, voice_config_response, listen_config_response]
             categories, initiatives, disengagements = [], [], []
             for payload in responses:
                 pc, pi, pd = _extract_character_field_options(payload)
@@ -378,13 +386,13 @@ def fetch_character_field_options(*, timeout_sec: float = 6.0) -> tuple[list[str
                 initiatives = _merge_option_sources(initiatives, pi)
                 disengagements = _merge_option_sources(disengagements, pd)
             return categories, initiatives, disengagements
-        return await _furhat_request(
-            realtime_host, timeout_sec, _extract,
-            lambda c: c.request_voice_status(voice_id=True, voice_list=True),
-            lambda c: c.request_face_status(face_id=True, face_list=True),
-            lambda c: c.request_voice_config(),
-            lambda c: c.request_listen_config(),
-        )
+        except Exception:
+            return [], [], []
+        finally:
+            try:
+                await asyncio.wait_for(client.disconnect(), timeout=2.0)
+            except Exception:
+                pass
     try:
         return asyncio.run(_query())
     except Exception:
