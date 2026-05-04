@@ -9,9 +9,10 @@ from copy import deepcopy
 from pathlib import Path
 from urllib.parse import urlparse
 from tkinter import filedialog, messagebox, ttk
-from typing import Any
+from typing import Any, Callable
 
 from .. import paths, settings_store
+from ..Robot.client import create_furhat_client
 
 FURHAT_REALTIME_DEFAULT_HOST = "127.0.0.1"
 
@@ -528,11 +529,64 @@ class CharacterCreatorWindow:
         self.initiative_combo: ttk.Combobox | None = None
         self.disengagement_combo: ttk.Combobox | None = None
 
+        self.robot_client = None
+        self._sync_lock = threading.Lock()
+        self._init_robot_client()
+        self._setup_sync_callbacks()
+
         self._build_ui()
         self._populate_from_payload(deepcopy(DEFAULT_CHARACTER_TEMPLATE))
         self._load_dynamic_options_async()
         if self.current_path and self.current_path.exists():
             self._load_from_path(self.current_path)
+
+    def _init_robot_client(self) -> None:
+        try:
+            settings = settings_store.load_settings()
+            self.robot_client = create_furhat_client(settings.ip)
+        except Exception:
+            self.robot_client = None
+
+    def _setup_sync_callbacks(self) -> None:
+        """Attach change listeners to key UI variables for robot sync."""
+        self.voice_id_value.trace_add("write", lambda *_: self._sync_voice())
+        self.face_id_value.trace_add("write", lambda *_: self._sync_face())
+        self.input_language_value.trace_add("write", lambda *_: self._sync_language())
+        self.expressiveness_value.trace_add("write", lambda *_: self._sync_expressiveness())
+
+    def _sync_to_robot(self, fn: Callable) -> None:
+        """Execute an async robot call in a thread-safe background thread."""
+        if self.robot_client is None:
+            return
+        def _worker():
+            with self._sync_lock:
+                try:
+                    asyncio.run(fn())
+                except Exception:
+                    pass
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _sync_voice(self) -> None:
+        voice = self.voice_id_value.get().strip()
+        if voice:
+            self._sync_to_robot(lambda: self.robot_client.request_set_voice(voice))
+
+    def _sync_face(self) -> None:
+        face = self.face_id_value.get().strip()
+        if face:
+            self._sync_to_robot(lambda: self.robot_client.request_face_config(face_id=face))
+
+    def _sync_language(self) -> None:
+        lang = self.input_language_value.get().strip()
+        if lang:
+            self._sync_to_robot(lambda: self.robot_client.request_listen_config(languages=[lang]))
+
+    def _sync_expressiveness(self) -> None:
+        try:
+            rate = max(0.5, min(2.0, float(self.expressiveness_value.get())))
+            self._sync_to_robot(lambda: self.robot_client.request_set_voice_parameters(rate=rate, volume=1.0))
+        except Exception:
+            pass
 
     def _build_ui(self) -> None:
         root = tk.Frame(self.window, bg="#0f172a", padx=16, pady=16)
