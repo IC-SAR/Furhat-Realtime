@@ -531,14 +531,18 @@ class CharacterCreatorWindow:
 
         self.robot_client = None
         self._sync_lock = threading.Lock()
+        self._syncing_enabled = False
         self._init_robot_client()
-        self._setup_sync_callbacks()
 
         self._build_ui()
         self._populate_from_payload(deepcopy(DEFAULT_CHARACTER_TEMPLATE))
         self._load_dynamic_options_async()
         if self.current_path and self.current_path.exists():
             self._load_from_path(self.current_path)
+        
+        # Enable sync only after UI is fully initialized
+        self._syncing_enabled = True
+        self._setup_sync_callbacks()
 
     def _init_robot_client(self) -> None:
         try:
@@ -556,7 +560,7 @@ class CharacterCreatorWindow:
 
     def _sync_to_robot(self, fn: Callable) -> None:
         """Execute an async robot call in a thread-safe background thread."""
-        if self.robot_client is None:
+        if not self._syncing_enabled or self.robot_client is None:
             return
         def _worker():
             with self._sync_lock:
