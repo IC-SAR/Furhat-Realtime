@@ -9,10 +9,9 @@ from copy import deepcopy
 from pathlib import Path
 from urllib.parse import urlparse
 from tkinter import filedialog, messagebox, ttk
-from typing import Any, Callable
+from typing import Any
 
 from .. import paths, settings_store
-from ..Robot.client import create_furhat_client
 
 FURHAT_REALTIME_DEFAULT_HOST = "127.0.0.1"
 
@@ -310,19 +309,26 @@ def fetch_face_options(*, timeout_sec: float = 6.0) -> list[str]:
         if debug_enabled:
             _debug_print("Furhat face status debug: furhat_realtime_api import failed; using fallback faces.")
         return []
+
     async def _query() -> list[str]:
         client = AsyncFurhatClient(realtime_host)
+        if debug_enabled:
+            _debug_print(f"Furhat face status debug: connecting to {realtime_host}")
+        await asyncio.wait_for(client.connect(), timeout=timeout_sec)
         try:
-            await asyncio.wait_for(client.connect(), timeout=timeout_sec)
-            response = await asyncio.wait_for(client.request_face_status(face_id=True, face_list=True), timeout=timeout_sec)
-            return _extract_face_ids([response])
-        except Exception:
-            return []
+            response = await asyncio.wait_for(
+                client.request_face_status(face_id=True, face_list=True),
+                timeout=timeout_sec,
+            )
+            if debug_enabled:
+                print(f"Furhat face status raw payload: {response!r}", flush=True)
         finally:
             try:
                 await asyncio.wait_for(client.disconnect(), timeout=2.0)
             except Exception:
                 pass
+        return _extract_face_ids(response)
+
     try:
         return asyncio.run(_query())
     except Exception:
@@ -340,19 +346,26 @@ def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[st
         if debug_enabled:
             _debug_print("Furhat voice status debug: furhat_realtime_api import failed; using fallback voices.")
         return [], [], []
+
     async def _query() -> tuple[list[str], list[str], list[str]]:
         client = AsyncFurhatClient(realtime_host)
+        if debug_enabled:
+            _debug_print(f"Furhat voice status debug: connecting to {realtime_host}")
+        await asyncio.wait_for(client.connect(), timeout=timeout_sec)
         try:
-            await asyncio.wait_for(client.connect(), timeout=timeout_sec)
-            response = await asyncio.wait_for(client.request_voice_status(voice_id=True, voice_list=True), timeout=timeout_sec)
-            return _extract_voice_options([response])
-        except Exception:
-            return [], [], []
+            response = await asyncio.wait_for(
+                client.request_voice_status(voice_id=True, voice_list=True),
+                timeout=timeout_sec,
+            )
+            if debug_enabled:
+                print(f"Furhat voice status raw payload: {response!r}", flush=True)
         finally:
             try:
                 await asyncio.wait_for(client.disconnect(), timeout=2.0)
             except Exception:
                 pass
+        return _extract_voice_options(response)
+
     try:
         return asyncio.run(_query())
     except Exception:
@@ -361,7 +374,10 @@ def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[st
         return [], [], []
 
 
-def fetch_character_field_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[str], list[str]]:
+def fetch_character_field_options(
+    *,
+    timeout_sec: float = 6.0,
+) -> tuple[list[str], list[str], list[str]]:
     debug_enabled = _debug_enabled()
     realtime_host = _resolve_realtime_host()
     try:
@@ -370,29 +386,86 @@ def fetch_character_field_options(*, timeout_sec: float = 6.0) -> tuple[list[str
         if debug_enabled:
             _debug_print("Furhat field options debug: furhat_realtime_api import failed; using fallback lists.")
         return [], [], []
+
     async def _query() -> tuple[list[str], list[str], list[str]]:
         client = AsyncFurhatClient(realtime_host)
+        if debug_enabled:
+            _debug_print(f"Furhat field options debug: connecting to {realtime_host}")
+        await asyncio.wait_for(client.connect(), timeout=timeout_sec)
+        responses: list[Any] = []
         try:
-            await asyncio.wait_for(client.connect(), timeout=timeout_sec)
-            voice_response = await asyncio.wait_for(client.request_voice_status(voice_id=True, voice_list=True), timeout=timeout_sec)
-            face_response = await asyncio.wait_for(client.request_face_status(face_id=True, face_list=True), timeout=timeout_sec)
-            voice_config_response = await asyncio.wait_for(client.request_voice_config(), timeout=timeout_sec)
-            listen_config_response = await asyncio.wait_for(client.request_listen_config(), timeout=timeout_sec)
-            responses = [voice_response, face_response, voice_config_response, listen_config_response]
-            categories, initiatives, disengagements = [], [], []
-            for payload in responses:
-                pc, pi, pd = _extract_character_field_options(payload)
-                categories = _merge_option_sources(categories, pc)
-                initiatives = _merge_option_sources(initiatives, pi)
-                disengagements = _merge_option_sources(disengagements, pd)
-            return categories, initiatives, disengagements
-        except Exception:
-            return [], [], []
+            try:
+                response = await asyncio.wait_for(
+                    client.request_voice_status(voice_id=True, voice_list=True),
+                    timeout=timeout_sec,
+                )
+                if debug_enabled:
+                    print(f"Furhat voice_status field options raw payload: {response!r}", flush=True)
+                responses.append(response)
+            except Exception:
+                pass
+            try:
+                response = await asyncio.wait_for(
+                    client.request_face_status(face_id=True, face_list=True),
+                    timeout=timeout_sec,
+                )
+                if debug_enabled:
+                    print(f"Furhat face_status field options raw payload: {response!r}", flush=True)
+                responses.append(response)
+            except Exception:
+                pass
+            try:
+                response = await asyncio.wait_for(
+                    client.request_voice_config(),
+                    timeout=timeout_sec,
+                )
+                if debug_enabled:
+                    print(f"Furhat voice_config field options raw payload: {response!r}", flush=True)
+                responses.append(response)
+            except Exception:
+                pass
+            try:
+                response = await asyncio.wait_for(
+                    client.request_listen_config(),
+                    timeout=timeout_sec,
+                )
+                if debug_enabled:
+                    print(f"Furhat listen_config field options raw payload: {response!r}", flush=True)
+                responses.append(response)
+            except Exception:
+                pass
         finally:
             try:
                 await asyncio.wait_for(client.disconnect(), timeout=2.0)
             except Exception:
                 pass
+
+        categories: list[str] = []
+        initiatives: list[str] = []
+        disengagements: list[str] = []
+        for idx, payload in enumerate(responses):
+            parsed_categories, parsed_initiatives, parsed_disengagements = _extract_character_field_options(
+                payload
+            )
+            if debug_enabled:
+                print(
+                    f"Extracted from response {idx}: categories={parsed_categories}, "
+                    f"initiatives={parsed_initiatives}, disengagements={parsed_disengagements}",
+                    flush=True,
+                )
+            categories = _merge_option_sources(categories, parsed_categories)
+            initiatives = _merge_option_sources(initiatives, parsed_initiatives)
+            disengagements = _merge_option_sources(disengagements, parsed_disengagements)
+
+        if debug_enabled:
+            print(
+                f"Final merged field options: categories={categories}, "
+                f"initiatives={initiatives}, disengagements={disengagements}",
+                flush=True,
+            )
+
+        return categories, initiatives, disengagements
+
     try:
         return asyncio.run(_query())
     except Exception:
@@ -444,10 +517,6 @@ def _normalize_action_schema(value: Any) -> list[dict[str, Any]]:
                 normalized.append(item)
         return normalized
     return []
-
-
-def _make_button(parent: tk.Widget, text: str, command, fg: str, bg: str, **kwargs) -> tk.Button:
-    return tk.Button(parent, text=text, command=command, fg=fg, bg=bg, relief="flat", padx=10, pady=4, font=("Trebuchet MS", 9, "bold"), **kwargs)
 
 
 def normalize_character_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -537,68 +606,11 @@ class CharacterCreatorWindow:
         self.initiative_combo: ttk.Combobox | None = None
         self.disengagement_combo: ttk.Combobox | None = None
 
-        self.robot_client = None
-        self._sync_lock = threading.Lock()
-        self._syncing_enabled = False
-        self._init_robot_client()
-
         self._build_ui()
         self._populate_from_payload(deepcopy(DEFAULT_CHARACTER_TEMPLATE))
         self._load_dynamic_options_async()
         if self.current_path and self.current_path.exists():
             self._load_from_path(self.current_path)
-        
-        # Enable sync only after UI is fully initialized
-        self._syncing_enabled = True
-        self._setup_sync_callbacks()
-
-    def _init_robot_client(self) -> None:
-        try:
-            settings = settings_store.load_settings()
-            self.robot_client = create_furhat_client(settings.ip)
-        except Exception:
-            self.robot_client = None
-
-    def _setup_sync_callbacks(self) -> None:
-        """Attach change listeners to key UI variables for robot sync."""
-        self.voice_id_value.trace_add("write", lambda *_: self._sync_voice())
-        self.face_id_value.trace_add("write", lambda *_: self._sync_face())
-        self.input_language_value.trace_add("write", lambda *_: self._sync_language())
-        self.expressiveness_value.trace_add("write", lambda *_: self._sync_expressiveness())
-
-    def _sync_to_robot(self, fn: Callable) -> None:
-        """Execute an async robot call in a thread-safe background thread."""
-        if not self._syncing_enabled or self.robot_client is None:
-            return
-        def _worker():
-            with self._sync_lock:
-                try:
-                    asyncio.run(fn())
-                except Exception:
-                    pass
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def _sync_voice(self) -> None:
-        voice = self.voice_id_value.get().strip()
-        if voice:
-            self._sync_to_robot(lambda: self.robot_client.request_set_voice(voice))
-
-    def _sync_face(self) -> None:
-        face = self.face_id_value.get().strip()
-        if face:
-            self._sync_to_robot(lambda: self.robot_client.request_face_config(face_id=face))
-
-    def _sync_language(self) -> None:
-        lang = self.input_language_value.get().strip()
-        if lang:
-            self._sync_to_robot(lambda: self.robot_client.request_listen_config(languages=[lang]))
-
-    def _sync_expressiveness(self) -> None:
-        try:
-            rate = max(0.5, min(2.0, float(self.expressiveness_value.get())))
-            self._sync_to_robot(lambda: self.robot_client.request_set_voice_parameters(rate=rate, volume=1.0))
-        except Exception:
-            pass
 
     def _build_ui(self) -> None:
         root = tk.Frame(self.window, bg="#0f172a", padx=16, pady=16)
@@ -811,33 +823,58 @@ class CharacterCreatorWindow:
         combo.grid(row=row, column=3, sticky="ew", pady=6)
         return combo
 
-    def _set_options(self, combo: ttk.Combobox | None, current_var: tk.StringVar, options: list[str], fallback: list[str], use_merge: bool = False) -> None:
-        current = current_var.get().strip()
-        normalized = _merge_option_sources(options, fallback) if use_merge else options
-        normalized = _dedupe_options(normalized, current) if normalized else _dedupe_options(fallback, current)
-        if combo is not None:
-            combo.configure(values=normalized)
-
     def _set_face_options(self, options: list[str]) -> None:
-        self._set_options(self.face_combo, self.face_id_value, options, FALLBACK_FACE_OPTIONS)
+        current = self.face_id_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_FACE_OPTIONS, current)
+        if self.face_combo is not None:
+            self.face_combo.configure(values=normalized)
 
     def _set_voice_options(self, options: list[str]) -> None:
-        self._set_options(self.voice_combo, self.voice_id_value, options, FALLBACK_VOICE_OPTIONS)
+        current = self.voice_id_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_VOICE_OPTIONS, current)
+        if self.voice_combo is not None:
+            self.voice_combo.configure(values=normalized)
 
     def _set_language_options(self, options: list[str]) -> None:
-        self._set_options(self.language_combo, self.input_language_value, options, FALLBACK_LANGUAGE_OPTIONS)
+        current = self.input_language_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_LANGUAGE_OPTIONS, current)
+        if self.language_combo is not None:
+            self.language_combo.configure(values=normalized)
 
     def _set_gender_options(self, options: list[str]) -> None:
-        self._set_options(self.gender_combo, self.gender_value, options, FALLBACK_GENDER_OPTIONS)
+        current = self.gender_value.get().strip()
+        normalized = _dedupe_options(options, current)
+        if not normalized:
+            normalized = _dedupe_options(FALLBACK_GENDER_OPTIONS, current)
+        if self.gender_combo is not None:
+            self.gender_combo.configure(values=normalized)
 
     def _set_category_options(self, options: list[str]) -> None:
-        self._set_options(self.category_combo, self.category_value, options, FALLBACK_CATEGORY_OPTIONS, use_merge=True)
+        current = self.category_value.get().strip()
+        normalized = _merge_option_sources(options, FALLBACK_CATEGORY_OPTIONS)
+        normalized = _dedupe_options(normalized, current)
+        if self.category_combo is not None:
+            self.category_combo.configure(values=normalized)
 
     def _set_initiative_options(self, options: list[str]) -> None:
-        self._set_options(self.initiative_combo, self.initiative_value, options, FALLBACK_INITIATIVE_OPTIONS, use_merge=True)
+        current = self.initiative_value.get().strip()
+        normalized = _merge_option_sources(options, FALLBACK_INITIATIVE_OPTIONS)
+        normalized = _dedupe_options(normalized, current)
+        if self.initiative_combo is not None:
+            self.initiative_combo.configure(values=normalized)
 
     def _set_disengagement_options(self, options: list[str]) -> None:
-        self._set_options(self.disengagement_combo, self.disengagement_value, options, FALLBACK_DISENGAGEMENT_OPTIONS, use_merge=True)
+        current = self.disengagement_value.get().strip()
+        normalized = _merge_option_sources(options, FALLBACK_DISENGAGEMENT_OPTIONS)
+        normalized = _dedupe_options(normalized, current)
+        if self.disengagement_combo is not None:
+            self.disengagement_combo.configure(values=normalized)
 
     def _load_dynamic_options_async(self) -> None:
         self._set_voice_options(FALLBACK_VOICE_OPTIONS)
@@ -942,22 +979,26 @@ class CharacterCreatorWindow:
                 "1.0", json.dumps(data["actionSchema"], indent=2, ensure_ascii=False)
             )
 
-    def _collect_payload(self, validate_schema: bool = True) -> dict[str, Any]:
-        links = [{"link": str(self.links_listbox.get(idx)).strip()} for idx in range(self.links_listbox.size() if self.links_listbox else 0) if str(self.links_listbox.get(idx)).strip()]
-        action_schema = []
+    def _collect_payload(self) -> dict[str, Any]:
+        links: list[dict[str, str]] = []
+        if self.links_listbox is not None:
+            for idx in range(self.links_listbox.size()):
+                link = str(self.links_listbox.get(idx)).strip()
+                if link:
+                    links.append({"link": link})
+
+        action_schema: list[dict[str, Any]] = []
         if self.action_schema_text is not None:
             raw = self.action_schema_text.get("1.0", "end").strip()
             if raw:
                 parsed = json.loads(raw)
-                if validate_schema:
-                    if not isinstance(parsed, list):
-                        raise ValueError("actionSchema must be a JSON list")
-                    for item in parsed:
-                        if not isinstance(item, dict):
-                            raise ValueError("each actionSchema entry must be a JSON object")
-                    action_schema = parsed
-                else:
-                    action_schema = [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+                if not isinstance(parsed, list):
+                    raise ValueError("actionSchema must be a JSON list")
+                for item in parsed:
+                    if not isinstance(item, dict):
+                        raise ValueError("each actionSchema entry must be a JSON object")
+                action_schema = parsed
+
         payload = {
             "id": self.id_value.get().strip(),
             "name": self.name_value.get().strip(),
@@ -1124,12 +1165,54 @@ class CharacterCreatorWindow:
         self.action_schema_text.configure(yscrollcommand=action_scroll.set)
 
         # Keep advanced editor in sync with current in-memory payload.
-        payload = self._collect_payload(validate_schema=False)
+        payload = self._collect_payload_without_action_schema_parse()
         self.action_schema_text.insert(
             "1.0", json.dumps(payload["actionSchema"], indent=2, ensure_ascii=False)
         )
 
+    def _collect_payload_without_action_schema_parse(self) -> dict[str, Any]:
+        links: list[dict[str, str]] = []
+        if self.links_listbox is not None:
+            for idx in range(self.links_listbox.size()):
+                link = str(self.links_listbox.get(idx)).strip()
+                if link:
+                    links.append({"link": link})
 
+        action_schema = []
+        if self.action_schema_text is not None:
+            raw = self.action_schema_text.get("1.0", "end").strip()
+            if raw:
+                try:
+                    parsed = json.loads(raw)
+                except Exception:
+                    parsed = []
+                if isinstance(parsed, list):
+                    action_schema = [item for item in parsed if isinstance(item, dict)]
+
+        payload = {
+            "id": self.id_value.get().strip(),
+            "name": self.name_value.get().strip(),
+            "voiceId": self.voice_id_value.get().strip(),
+            "voiceExpressivity": bool(self.voice_expressivity_value.get()),
+            "inputLanguageId": self.input_language_value.get().strip(),
+            "gender": self.gender_value.get().strip(),
+            "faceId": self.face_id_value.get().strip(),
+            "agentName": self.agent_name_value.get().strip(),
+            "description": self.description_value.get().strip(),
+            "expressiveness": float(self.expressiveness_value.get()),
+            "expressivenessFrequency": float(self.expressiveness_frequency_value.get()),
+            "externalLinks": links,
+            "category": self.category_value.get().strip(),
+            "initiative": self.initiative_value.get().strip(),
+            "openingLine": self.opening_line_value.get().strip(),
+            "useCamera": bool(self.use_camera_value.get()),
+            "canEndConversation": bool(self.can_end_conversation_value.get()),
+            "disengagementThreshold": self.disengagement_value.get().strip(),
+            "useHeadPose": bool(self.use_head_pose_value.get()),
+            "logInteractions": bool(self.log_interactions_value.get()),
+            "actionSchema": action_schema,
+        }
+        return normalize_character_payload(payload)
 
     def _add_link(self) -> None:
         self._prompt_for_link(initial="")
