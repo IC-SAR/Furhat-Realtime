@@ -12,7 +12,7 @@ from typing import Any
 
 from .. import paths, settings_store
 
-FURHAT_REALTIME_WS_URL = "ws://localhost:54321/ws"
+FURHAT_REALTIME_WS_URL = "ws://127.0.0.1:9000/"
 
 DEFAULT_CHARACTER_TEMPLATE: dict[str, Any] = {
     "id": "",
