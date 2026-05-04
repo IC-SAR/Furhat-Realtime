@@ -5,6 +5,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +18,14 @@ from Furhat.UI import character_creator  # noqa: E402
 
 
 class CharacterCreatorTests(unittest.TestCase):
+    def test_resolve_realtime_host_strips_ws_url_from_settings(self) -> None:
+        with mock.patch.object(
+            character_creator.settings_store,
+            "load_settings",
+            return_value=SimpleNamespace(ip="ws://127.0.0.1:9000/"),
+        ):
+            self.assertEqual(character_creator._resolve_realtime_host(), "127.0.0.1")  # noqa: SLF001
+
     def test_extract_voice_options_from_furhat_response_shape(self) -> None:
         payload = {
             "voice_id": "English (United States): AndrewNeural (Male, Microsoft Azure)",

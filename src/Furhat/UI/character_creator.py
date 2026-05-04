@@ -7,12 +7,13 @@ import threading
 import tkinter as tk
 from copy import deepcopy
 from pathlib import Path
+from urllib.parse import urlparse
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from .. import paths, settings_store
 
-FURHAT_REALTIME_WS_URL = "ws://127.0.0.1:9000/"
+FURHAT_REALTIME_DEFAULT_HOST = "127.0.0.1"
 
 DEFAULT_CHARACTER_TEMPLATE: dict[str, Any] = {
     "id": "",
@@ -76,6 +77,24 @@ def _dedupe_options(options: list[str], value: str) -> list[str]:
     if value and value not in normalized:
         normalized = [value] + normalized
     return normalized
+
+
+def _resolve_realtime_host() -> str:
+    try:
+        settings = settings_store.load_settings()
+        raw_host = str(getattr(settings, "ip", "")).strip()
+    except Exception:
+        raw_host = ""
+
+    if not raw_host:
+        return FURHAT_REALTIME_DEFAULT_HOST
+
+    parsed = urlparse(raw_host if "://" in raw_host else f"//{raw_host}")
+    host = (parsed.hostname or "").strip()
+    if host:
+        return host
+
+    return raw_host.split(":", 1)[0].split("/", 1)[0] or FURHAT_REALTIME_DEFAULT_HOST
 
 
 def _coerce_payload(value: Any) -> Any:
@@ -283,6 +302,7 @@ def _discover_character_field_options(app_root: Path) -> tuple[list[str], list[s
 
 def fetch_face_options(*, timeout_sec: float = 6.0) -> list[str]:
     debug_enabled = _debug_enabled()
+    realtime_host = _resolve_realtime_host()
     try:
         from furhat_realtime_api import AsyncFurhatClient
     except Exception:
@@ -291,9 +311,9 @@ def fetch_face_options(*, timeout_sec: float = 6.0) -> list[str]:
         return []
 
     async def _query() -> list[str]:
-        client = AsyncFurhatClient(FURHAT_REALTIME_WS_URL)
+        client = AsyncFurhatClient(realtime_host)
         if debug_enabled:
-            _debug_print(f"Furhat face status debug: connecting to {FURHAT_REALTIME_WS_URL}")
+            _debug_print(f"Furhat face status debug: connecting to {realtime_host}")
         await asyncio.wait_for(client.connect(), timeout=timeout_sec)
         try:
             response = await asyncio.wait_for(
@@ -313,12 +333,13 @@ def fetch_face_options(*, timeout_sec: float = 6.0) -> list[str]:
         return asyncio.run(_query())
     except Exception:
         if debug_enabled:
-            _debug_print(f"Furhat face status debug: request failed for {FURHAT_REALTIME_WS_URL}; using fallback faces.")
+            _debug_print(f"Furhat face status debug: request failed for {realtime_host}; using fallback faces.")
         return []
 
 
 def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[str], list[str]]:
     debug_enabled = _debug_enabled()
+    realtime_host = _resolve_realtime_host()
     try:
         from furhat_realtime_api import AsyncFurhatClient
     except Exception:
@@ -327,9 +348,9 @@ def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[st
         return [], [], []
 
     async def _query() -> tuple[list[str], list[str], list[str]]:
-        client = AsyncFurhatClient(FURHAT_REALTIME_WS_URL)
+        client = AsyncFurhatClient(realtime_host)
         if debug_enabled:
-            _debug_print(f"Furhat voice status debug: connecting to {FURHAT_REALTIME_WS_URL}")
+            _debug_print(f"Furhat voice status debug: connecting to {realtime_host}")
         await asyncio.wait_for(client.connect(), timeout=timeout_sec)
         try:
             response = await asyncio.wait_for(
@@ -349,7 +370,7 @@ def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[st
         return asyncio.run(_query())
     except Exception:
         if debug_enabled:
-            _debug_print(f"Furhat voice status debug: request failed for {FURHAT_REALTIME_WS_URL}; using fallback voices.")
+            _debug_print(f"Furhat voice status debug: request failed for {realtime_host}; using fallback voices.")
         return [], [], []
 
 
@@ -358,6 +379,7 @@ def fetch_character_field_options(
     timeout_sec: float = 6.0,
 ) -> tuple[list[str], list[str], list[str]]:
     debug_enabled = _debug_enabled()
+    realtime_host = _resolve_realtime_host()
     try:
         from furhat_realtime_api import AsyncFurhatClient
     except Exception:
@@ -366,9 +388,9 @@ def fetch_character_field_options(
         return [], [], []
 
     async def _query() -> tuple[list[str], list[str], list[str]]:
-        client = AsyncFurhatClient(FURHAT_REALTIME_WS_URL)
+        client = AsyncFurhatClient(realtime_host)
         if debug_enabled:
-            _debug_print(f"Furhat field options debug: connecting to {FURHAT_REALTIME_WS_URL}")
+            _debug_print(f"Furhat field options debug: connecting to {realtime_host}")
         await asyncio.wait_for(client.connect(), timeout=timeout_sec)
         responses: list[Any] = []
         try:
@@ -448,7 +470,7 @@ def fetch_character_field_options(
         return asyncio.run(_query())
     except Exception:
         if debug_enabled:
-            _debug_print(f"Furhat field options debug: request failed for {FURHAT_REALTIME_WS_URL}; using fallback lists.")
+            _debug_print(f"Furhat field options debug: request failed for {realtime_host}; using fallback lists.")
         return [], [], []
 
 
