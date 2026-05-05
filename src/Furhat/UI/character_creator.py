@@ -1174,6 +1174,7 @@ class CharacterCreatorWindow:
 
                 # Best-effort speak the opening line directly on Furhat.
                 opening_line = payload.get("openingLine", "").strip()
+                voice_id = payload.get("voiceId", "").strip()
                 if opening_line:
                     try:
                         from furhat_realtime_api import AsyncFurhatClient
@@ -1183,6 +1184,14 @@ class CharacterCreatorWindow:
                             client = AsyncFurhatClient(realtime_host)
                             try:
                                 await asyncio.wait_for(client.connect(), timeout=6.0)
+                                if voice_id:
+                                    try:
+                                        await asyncio.wait_for(
+                                            client.request_voice_config(name=voice_id),
+                                            timeout=6.0,
+                                        )
+                                    except Exception:
+                                        pass
                                 try:
                                     await asyncio.wait_for(
                                         client.request_speak_text(opening_line, wait=True, abort=True),
