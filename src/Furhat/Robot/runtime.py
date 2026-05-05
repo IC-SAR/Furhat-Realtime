@@ -669,6 +669,15 @@ class RobotRuntime:
                 logger.warning("Failed to apply character voice: %s", exc)
                 self._notify(f"character voice error: {exc}")
 
+        # Apply face/mask if available on the connected Furhat
+        if character.face_id:
+            try:
+                if hasattr(self.furhat, "request_face_config"):
+                    await self.furhat.request_face_config(face_id=character.face_id)
+            except Exception as exc:
+                logger.warning("Failed to apply character face: %s", exc)
+                self._notify(f"character face error: {exc}")
+
         if speak_greeting and character.opening_line:
             await self._speak_text_safe(character.opening_line, wait=True, abort=True, timeout=10)
 
