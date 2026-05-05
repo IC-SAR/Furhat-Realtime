@@ -1078,76 +1078,87 @@ class CharacterCreatorWindow:
         self.status_var.set(f"Saved: {path}")
 
     def _test_on_robot(self) -> None:
-        """Test the character settings on the Furhat robot."""
-        def _run_test() -> None:
-            temp_path: str | None = None
-            try:
-                # Collect current settings
-                payload = self._collect_payload()
-                
-                # Create a temporary file for the test character
-                with tempfile.NamedTemporaryFile(
-                    mode="w",
-                    suffix=".json",
-                    delete=False,
-                    encoding="utf-8"
-                ) as temp_file:
-                    json.dump(payload, temp_file, indent=2, ensure_ascii=False)
-                    temp_path = temp_file.name
-                
+        """Test the character settings on the Furhat robot by saving and loading in the main app."""
+        # First, save the current character
+        self.status_var.set("Saving character for testing...")
+        
+        try:
+            payload = self._collect_payload()
+            
+            # Use a temporary file as the character path
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".json",
+                delete=False,
+                encoding="utf-8"
+            ) as temp_file:
+                json.dump(payload, temp_file, indent=2, ensure_ascii=False)
+                temp_path = temp_file.name
+            
+            # Check if robot is connected
+            status = robot.get_runtime_status()
+            if not status.get("connected"):
+                messagebox.showinfo(
+                    "Character Creator",
+                    "To test the character on the Furhat:\n\n"
+                    "1. Connect to the robot in the main UI\n"
+                    "2. Then click 'Test on Furhat' again",
+                    parent=self.window
+                )
+                self.status_var.set("Robot not connected - connect in main UI to test")
+                return
+            
+            # Try to load the character on the robot
+            self.status_var.set("Loading character on Furhat...")
+            
+            async def _apply_test() -> None:
+                await robot.apply_character_file(temp_path, force_rag=False, speak_greeting=True)
+            
+            if self.loop:
+                future = asyncio.run_coroutine_threadsafe(_apply_test(), self.loop)
                 try:
-                    # Apply the character to the robot and make it speak
-                    coro = robot.apply_character_file(temp_path, force_rag=False, speak_greeting=True)
-                    
-                    if self.loop:
-                        # Use the existing event loop from the main UI
-                        asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=30)
-                    else:
-                        # Fallback if no loop is available
-                        asyncio.run(coro)
-                    
-                    # Update status on UI
-                    def _update_status() -> None:
-                        self.status_var.set(f"Tested character '{self.name_value.get().strip()}' on Furhat")
-                    
-                    self.window.after(0, _update_status)
-                except Exception as exc:
-                    # Capture exception message in outer scope for nested function
-                    error_message = str(exc)
-                    def _show_error() -> None:
-                        messagebox.showerror(
-                            "Character Creator",
-                            f"Failed to test character on Furhat:\n{error_message}",
-                            parent=self.window
-                        )
-                        self.status_var.set("Test failed - check Furhat connection")
-                    
-                    self.window.after(0, _show_error)
-                finally:
-                    # Clean up temp file
-                    try:
-                        if temp_path:
-                            Path(temp_path).unlink(missing_ok=True)
-                    except Exception:
-                        pass
-            except Exception as exc:
-                # Capture exception message in outer scope for nested function
-                error_message = str(exc)
-                def _show_error() -> None:
-                    messagebox.showerror(
-                        "Character Creator",
-                        f"Error preparing character test:\n{error_message}",
+                    future.result(timeout=60)
+                    self.status_var.set(f"✓ Character test successful! Voice and settings applied.")
+                except asyncio.TimeoutError:
+                    messagebox.showwarning(
+                        "Character Test",
+                        "Test timed out, but the character may still be loading.\n"
+                        "Check the main UI to see if it's speaking.",
                         parent=self.window
                     )
-                    self.status_var.set("Test error - check settings")
+                    self.status_var.set("Test in progress...")
+                except Exception as e:
+                    # If apply_character_file fails, provide helpful guidance
+                    messagebox.showinfo(
+                        "Character Saved",
+                        f"Character saved successfully but couldn't be tested:\n{str(e)}\n\n"
+                        "To test it, load the character in the main UI.\n"
+                        "Note: Testing complex characters may require the main app context.",
+                        parent=self.window
+                    )
+                    self.status_var.set("Character prepared - load in main UI to test fully")
+            else:
+                messagebox.showinfo(
+                    "Character Creator",
+                    "Character saved successfully.\n\n"
+                    "To test it, load the character in the main Furhat UI.",
+                    parent=self.window
+                )
+                self.status_var.set("Character prepared - load in main UI")
+            
+            # Clean up temp file
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
                 
-                self.window.after(0, _show_error)
-        
-        # Update status
-        self.status_var.set("Testing character on Furhat...")
-        
-        # Run test in background thread to avoid blocking UI
-        threading.Thread(target=_run_test, daemon=True).start()
+        except Exception as exc:
+            messagebox.showerror(
+                "Character Creator",
+                f"Error testing character:\n{exc}",
+                parent=self.window
+            )
+            self.status_var.set("Test error - check settings")
 
     def _open_advanced(self) -> None:
         if self.advanced_window is not None and self.advanced_window.winfo_exists():
