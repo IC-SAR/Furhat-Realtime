@@ -1078,119 +1078,77 @@ class CharacterCreatorWindow:
         self.status_var.set(f"Saved: {path}")
 
     def _test_on_robot(self) -> None:
-        """Test the character settings on the Furhat robot by sending through websocket."""
-        def _run_test() -> None:
+        """Upload the current character JSON to the runtime (no speech/lipsync)."""
+        def _run_upload() -> None:
             try:
-                # Collect current character settings
                 payload = self._collect_payload()
                 character_name = payload.get("name", "Character").strip()
-                opening_line = payload.get("openingLine", "").strip()
-                voice_id = payload.get("voiceId", "").strip()
-                
-                if not opening_line:
-                    def _show_error() -> None:
-                        messagebox.showwarning(
-                            "Character Creator",
-                            "Opening line is empty. Please set an opening line to test.",
-                            parent=self.window
-                        )
-                        self.status_var.set("Test requires opening line")
-                    self.window.after(0, _show_error)
-                    return
-                
-                self.window.after(0, lambda: self.status_var.set("Connecting to Furhat..."))
-                
-                # Import the async client
+
+                # Write payload to a temporary file
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".json", prefix="character_")
                 try:
-                    from furhat_realtime_api import AsyncFurhatClient
-                except ImportError:
+                    tmp.write(json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
+                    tmp.flush()
+                    tmp_path = Path(tmp.name)
+                finally:
+                    tmp.close()
+
+                # Schedule apply_character_file on the runtime (no greeting)
+                try:
+                    from ..Robot import runtime
+                except Exception:
                     def _show_error() -> None:
                         messagebox.showerror(
                             "Character Creator",
-                            "Furhat API not available",
-                            parent=self.window
+                            "Could not access runtime to upload character.",
+                            parent=self.window,
                         )
-                        self.status_var.set("Error - Furhat API not available")
+                        self.status_var.set("Upload failed")
                     self.window.after(0, _show_error)
-                    return
-                
-                async def _send_character() -> None:
-                    # Resolve the host
-                    realtime_host = _resolve_realtime_host()
-                    client = AsyncFurhatClient(realtime_host)
-                    
                     try:
-                        # Connect to robot
-                        await asyncio.wait_for(client.connect(), timeout=10.0)
-                        self.window.after(0, lambda: self.status_var.set(f"Testing '{character_name}' on Furhat..."))
-                        
-                        # Speak the opening line
-                        if opening_line:
-                            try:
-                                await asyncio.wait_for(
-                                    client.request_speak_text(opening_line, wait=True, abort=True),
-                                    timeout=30.0
-                                )
-                            except Exception as e:
-                                if _debug_enabled():
-                                    _debug_print(f"Warning: Could not speak line: {e}")
-                        
-                        # Success
-                        def _show_success() -> None:
-                            self.status_var.set(f"✓ '{character_name}' test successful!")
-                            messagebox.showinfo(
-                                "Character Tested",
-                                f"Character test successful on Furhat!\n\n"
-                                f"Character: {character_name}\n"
-                                f"Voice: {voice_id}\n"
-                                f"Opening Line: {opening_line}",
-                                parent=self.window
-                            )
-                        self.window.after(0, _show_success)
-                        
-                    except asyncio.TimeoutError:
-                        def _show_timeout() -> None:
-                            self.status_var.set("Connection timed out")
-                            messagebox.showwarning(
-                                "Timeout",
-                                "Connection to robot timed out. Please check the robot is running.",
-                                parent=self.window
-                            )
-                        self.window.after(0, _show_timeout)
-                    except Exception as e:
-                        def _show_error() -> None:
-                            self.status_var.set("Error testing character")
-                            messagebox.showerror(
-                                "Character Creator",
-                                f"Error testing character on Furhat:\n{str(e)}",
-                                parent=self.window
-                            )
-                        self.window.after(0, _show_error)
-                    finally:
-                        try:
-                            await asyncio.wait_for(client.disconnect(), timeout=2.0)
-                        except Exception:
-                            pass
-                
-                # Run the async operation
-                asyncio.run(_send_character())
-                
+                        tmp_path.unlink()
+                    except Exception:
+                        pass
+                    return
+
+                # Use runtime's scheduler so we don't interfere with event loops
+                try:
+                    coro = runtime.apply_character_file(str(tmp_path), speak_greeting=False)
+                    runtime._schedule_coroutine(coro)
+                    def _show_success() -> None:
+                        self.status_var.set(f"Uploaded '{character_name}' to runtime")
+                        messagebox.showinfo(
+                            "Character Uploaded",
+                            f"Character uploaded to runtime:\n\n{character_name}",
+                            parent=self.window,
+                        )
+                    self.window.after(0, _show_success)
+                except Exception as exc:
+                    def _show_error2() -> None:
+                        messagebox.showerror(
+                            "Character Creator",
+                            f"Failed to upload character:\n{exc}",
+                            parent=self.window,
+                        )
+                        self.status_var.set("Upload failed")
+                    self.window.after(0, _show_error2)
+                    try:
+                        tmp_path.unlink()
+                    except Exception:
+                        pass
+
             except Exception as exc:
                 def _show_error() -> None:
                     messagebox.showerror(
                         "Character Creator",
-                        f"Error testing character:\n{str(exc)}",
-                        parent=self.window
+                        f"Error uploading character:\n{str(exc)}",
+                        parent=self.window,
                     )
-                    self.status_var.set("Test error")
-                
+                    self.status_var.set("Upload error")
                 self.window.after(0, _show_error)
-        
-        # Update status
-        self.status_var.set("Testing character on Furhat...")
-        
-        # Run test in background thread
-        threading.Thread(target=_run_test, daemon=True).start()
+
+        self.status_var.set("Uploading character to runtime...")
+        threading.Thread(target=_run_upload, daemon=True).start()
 
     def _open_advanced(self) -> None:
         if self.advanced_window is not None and self.advanced_window.winfo_exists():
