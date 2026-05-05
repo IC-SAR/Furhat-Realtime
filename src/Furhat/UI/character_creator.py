@@ -1078,87 +1078,118 @@ class CharacterCreatorWindow:
         self.status_var.set(f"Saved: {path}")
 
     def _test_on_robot(self) -> None:
-        """Test the character settings on the Furhat robot by saving and loading in the main app."""
-        # First, save the current character
-        self.status_var.set("Saving character for testing...")
-        
-        try:
-            payload = self._collect_payload()
-            
-            # Use a temporary file as the character path
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                suffix=".json",
-                delete=False,
-                encoding="utf-8"
-            ) as temp_file:
-                json.dump(payload, temp_file, indent=2, ensure_ascii=False)
-                temp_path = temp_file.name
-            
-            # Check if robot is connected
-            status = robot.get_runtime_status()
-            if not status.get("connected"):
-                messagebox.showinfo(
-                    "Character Creator",
-                    "To test the character on the Furhat:\n\n"
-                    "1. Connect to the robot in the main UI\n"
-                    "2. Then click 'Test on Furhat' again",
-                    parent=self.window
-                )
-                self.status_var.set("Robot not connected - connect in main UI to test")
-                return
-            
-            # Try to load the character on the robot
-            self.status_var.set("Loading character on Furhat...")
-            
-            async def _apply_test() -> None:
-                await robot.apply_character_file(temp_path, force_rag=False, speak_greeting=True)
-            
-            if self.loop:
-                future = asyncio.run_coroutine_threadsafe(_apply_test(), self.loop)
-                try:
-                    future.result(timeout=60)
-                    self.status_var.set(f"✓ Character test successful! Voice and settings applied.")
-                except asyncio.TimeoutError:
-                    messagebox.showwarning(
-                        "Character Test",
-                        "Test timed out, but the character may still be loading.\n"
-                        "Check the main UI to see if it's speaking.",
-                        parent=self.window
-                    )
-                    self.status_var.set("Test in progress...")
-                except Exception as e:
-                    # If apply_character_file fails, provide helpful guidance
-                    messagebox.showinfo(
-                        "Character Saved",
-                        f"Character saved successfully but couldn't be tested:\n{str(e)}\n\n"
-                        "To test it, load the character in the main UI.\n"
-                        "Note: Testing complex characters may require the main app context.",
-                        parent=self.window
-                    )
-                    self.status_var.set("Character prepared - load in main UI to test fully")
-            else:
-                messagebox.showinfo(
-                    "Character Creator",
-                    "Character saved successfully.\n\n"
-                    "To test it, load the character in the main Furhat UI.",
-                    parent=self.window
-                )
-                self.status_var.set("Character prepared - load in main UI")
-            
-            # Clean up temp file
+        """Test the character settings on the Furhat robot by sending JSON through websocket."""
+        def _run_test() -> None:
             try:
-                Path(temp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+                # Collect current character settings
+                payload = self._collect_payload()
+                character_name = payload.get("name", "Character").strip()
+                opening_line = payload.get("openingLine", "").strip()
                 
-        except Exception as exc:
-            messagebox.showerror(
-                "Character Creator",
-                f"Error testing character:\n{exc}",
-                parent=self.window
-            )
-            self.status_var.set("Test error - check settings")
+                self.window.after(0, lambda: self.status_var.set("Connecting to Furhat..."))
+                
+                # Import the async client
+                try:
+                    from furhat_realtime_api import AsyncFurhatClient
+                except ImportError:
+                    def _show_error() -> None:
+                        messagebox.showerror(
+                            "Character Creator",
+                            "Furhat API not available",
+                            parent=self.window
+                        )
+                        self.status_var.set("Error - Furhat API not available")
+                    self.window.after(0, _show_error)
+                    return
+                
+                async def _send_character() -> None:
+                    # Resolve the host
+                    realtime_host = _resolve_realtime_host()
+                    client = AsyncFurhatClient(realtime_host)
+                    
+                    try:
+                        # Connect to robot
+                        await asyncio.wait_for(client.connect(), timeout=10.0)
+                        
+                        # Send the character configuration through websocket
+                        self.window.after(0, lambda: self.status_var.set(f"Updating '{character_name}' on Furhat..."))
+                        
+                        # Set the voice
+                        voice_id = payload.get("voiceId", "").strip()
+                        if voice_id:
+                            try:
+                                await asyncio.wait_for(client.request_set_voice(voice_id), timeout=5.0)
+                            except Exception as e:
+                                if _debug_enabled():
+                                    _debug_print(f"Warning: Could not set voice: {e}")
+                        
+                        # Speak the opening line
+                        if opening_line:
+                            try:
+                                await asyncio.wait_for(
+                                    client.request_speak_text(opening_line, wait=True, abort=True),
+                                    timeout=30.0
+                                )
+                            except Exception as e:
+                                if _debug_enabled():
+                                    _debug_print(f"Warning: Could not speak line: {e}")
+                        
+                        # Success
+                        def _show_success() -> None:
+                            self.status_var.set(f"✓ '{character_name}' updated on Furhat!")
+                            messagebox.showinfo(
+                                "Character Tested",
+                                f"Successfully updated character on Furhat!\n\n"
+                                f"Character: {character_name}\n"
+                                f"Voice: {voice_id}\n"
+                                f"Opening Line: {opening_line if opening_line else '(none)'}",
+                                parent=self.window
+                            )
+                        self.window.after(0, _show_success)
+                        
+                    except asyncio.TimeoutError:
+                        def _show_timeout() -> None:
+                            self.status_var.set("Connection timed out")
+                            messagebox.showwarning(
+                                "Timeout",
+                                "Connection to robot timed out. Please check the robot is running.",
+                                parent=self.window
+                            )
+                        self.window.after(0, _show_timeout)
+                    except Exception as e:
+                        def _show_error() -> None:
+                            self.status_var.set("Error updating character")
+                            messagebox.showerror(
+                                "Character Creator",
+                                f"Error updating character on Furhat:\n{str(e)}",
+                                parent=self.window
+                            )
+                        self.window.after(0, _show_error)
+                    finally:
+                        try:
+                            await asyncio.wait_for(client.disconnect(), timeout=2.0)
+                        except Exception:
+                            pass
+                
+                # Run the async operation
+                asyncio.run(_send_character())
+                
+            except Exception as exc:
+                def _show_error() -> None:
+                    messagebox.showerror(
+                        "Character Creator",
+                        f"Error testing character:\n{str(exc)}",
+                        parent=self.window
+                    )
+                    self.status_var.set("Test error")
+                
+                self.window.after(0, _show_error)
+        
+        # Update status
+        self.status_var.set("Testing character on Furhat...")
+        
+        # Run test in background thread
+        threading.Thread(target=_run_test, daemon=True).start()
 
     def _open_advanced(self) -> None:
         if self.advanced_window is not None and self.advanced_window.winfo_exists():
