@@ -1113,7 +1113,14 @@ class CharacterCreatorWindow:
 
                 # Use runtime's scheduler so we don't interfere with event loops
                 try:
-                    coro = runtime.apply_character_file(str(tmp_path), speak_greeting=False)
+                    # If runtime is connected, ask it to speak the greeting after applying
+                    speak_flag = False
+                    try:
+                        speak_flag = bool(getattr(runtime.runtime_status, "connected", False))
+                    except Exception:
+                        speak_flag = False
+
+                    coro = runtime.apply_character_file(str(tmp_path), speak_greeting=speak_flag)
                     runtime._schedule_coroutine(coro)
                     def _show_success() -> None:
                         self.status_var.set(f"Uploaded '{character_name}' to runtime")
@@ -1169,6 +1176,38 @@ class CharacterCreatorWindow:
                             pass
                     except Exception:
                         # furhat client not available; ignore
+                        pass
+
+                # Best-effort speak the opening line if runtime wasn't connected
+                opening_line = payload.get("openingLine", "").strip()
+                if opening_line and not (getattr(runtime, "runtime_status", None) and getattr(runtime.runtime_status, "connected", False)):
+                    try:
+                        from furhat_realtime_api import AsyncFurhatClient
+
+                        async def _speak_direct() -> None:
+                            realtime_host = _resolve_realtime_host()
+                            client = AsyncFurhatClient(realtime_host)
+                            try:
+                                await asyncio.wait_for(client.connect(), timeout=6.0)
+                                try:
+                                    await asyncio.wait_for(
+                                        client.request_speak_text(opening_line, wait=True, abort=True),
+                                        timeout=20.0,
+                                    )
+                                except Exception:
+                                    pass
+                            finally:
+                                try:
+                                    await asyncio.wait_for(client.disconnect(), timeout=2.0)
+                                except Exception:
+                                    pass
+
+                        try:
+                            asyncio.run(_speak_direct())
+                            self.window.after(0, lambda: self.status_var.set(f"Requested speak: {opening_line[:40]+'...' if len(opening_line)>40 else opening_line}"))
+                        except Exception:
+                            pass
+                    except Exception:
                         pass
 
             except Exception as exc:
