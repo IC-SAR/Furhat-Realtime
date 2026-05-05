@@ -671,12 +671,34 @@ class RobotRuntime:
 
         # Apply face/mask if available on the connected Furhat
         if character.face_id:
-            try:
-                if hasattr(self.furhat, "request_face_config"):
-                    await self.furhat.request_face_config(face_id=character.face_id)
-            except Exception as exc:
-                logger.warning("Failed to apply character face: %s", exc)
-                self._notify(f"character face error: {exc}")
+            # If we're connected, apply immediately; otherwise defer until connected.
+            if self.runtime_status.connected:
+                try:
+                    if hasattr(self.furhat, "request_face_config"):
+                        await self.furhat.request_face_config(face_id=character.face_id)
+                except Exception as exc:
+                    logger.warning("Failed to apply character face: %s", exc)
+                    self._notify(f"character face error: {exc}")
+            else:
+                async def _deferred_apply(face_id: str, timeout: float = 30.0) -> None:
+                    start = time.monotonic()
+                    while not self.runtime_status.connected:
+                        await asyncio.sleep(0.5)
+                        if time.monotonic() - start > timeout:
+                            logger.warning(
+                                "Timeout waiting for Furhat connection to apply face: %s", face_id
+                            )
+                            self._notify(f"character face error: connection timeout for {face_id}")
+                            return
+                    try:
+                        if hasattr(self.furhat, "request_face_config"):
+                            await self.furhat.request_face_config(face_id=face_id)
+                            self._notify(f"applied face: {face_id}")
+                    except Exception as exc:
+                        logger.warning("Failed to apply deferred character face: %s", exc)
+                        self._notify(f"character face error: {exc}")
+
+                asyncio.create_task(_deferred_apply(character.face_id))
 
         if speak_greeting and character.opening_line:
             await self._speak_text_safe(character.opening_line, wait=True, abort=True, timeout=10)
