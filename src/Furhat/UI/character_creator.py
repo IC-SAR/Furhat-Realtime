@@ -1078,13 +1078,25 @@ class CharacterCreatorWindow:
         self.status_var.set(f"Saved: {path}")
 
     def _test_on_robot(self) -> None:
-        """Test the character settings on the Furhat robot by sending JSON through websocket."""
+        """Test the character settings on the Furhat robot by sending through websocket."""
         def _run_test() -> None:
             try:
                 # Collect current character settings
                 payload = self._collect_payload()
                 character_name = payload.get("name", "Character").strip()
                 opening_line = payload.get("openingLine", "").strip()
+                voice_id = payload.get("voiceId", "").strip()
+                
+                if not opening_line:
+                    def _show_error() -> None:
+                        messagebox.showwarning(
+                            "Character Creator",
+                            "Opening line is empty. Please set an opening line to test.",
+                            parent=self.window
+                        )
+                        self.status_var.set("Test requires opening line")
+                    self.window.after(0, _show_error)
+                    return
                 
                 self.window.after(0, lambda: self.status_var.set("Connecting to Furhat..."))
                 
@@ -1110,18 +1122,7 @@ class CharacterCreatorWindow:
                     try:
                         # Connect to robot
                         await asyncio.wait_for(client.connect(), timeout=10.0)
-                        
-                        # Send the character configuration through websocket
-                        self.window.after(0, lambda: self.status_var.set(f"Updating '{character_name}' on Furhat..."))
-                        
-                        # Set the voice
-                        voice_id = payload.get("voiceId", "").strip()
-                        if voice_id:
-                            try:
-                                await asyncio.wait_for(client.request_set_voice(voice_id), timeout=5.0)
-                            except Exception as e:
-                                if _debug_enabled():
-                                    _debug_print(f"Warning: Could not set voice: {e}")
+                        self.window.after(0, lambda: self.status_var.set(f"Testing '{character_name}' on Furhat..."))
                         
                         # Speak the opening line
                         if opening_line:
@@ -1136,13 +1137,13 @@ class CharacterCreatorWindow:
                         
                         # Success
                         def _show_success() -> None:
-                            self.status_var.set(f"✓ '{character_name}' updated on Furhat!")
+                            self.status_var.set(f"✓ '{character_name}' test successful!")
                             messagebox.showinfo(
                                 "Character Tested",
-                                f"Successfully updated character on Furhat!\n\n"
+                                f"Character test successful on Furhat!\n\n"
                                 f"Character: {character_name}\n"
                                 f"Voice: {voice_id}\n"
-                                f"Opening Line: {opening_line if opening_line else '(none)'}",
+                                f"Opening Line: {opening_line}",
                                 parent=self.window
                             )
                         self.window.after(0, _show_success)
@@ -1158,10 +1159,10 @@ class CharacterCreatorWindow:
                         self.window.after(0, _show_timeout)
                     except Exception as e:
                         def _show_error() -> None:
-                            self.status_var.set("Error updating character")
+                            self.status_var.set("Error testing character")
                             messagebox.showerror(
                                 "Character Creator",
-                                f"Error updating character on Furhat:\n{str(e)}",
+                                f"Error testing character on Furhat:\n{str(e)}",
                                 parent=self.window
                             )
                         self.window.after(0, _show_error)
