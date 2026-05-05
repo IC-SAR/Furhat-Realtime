@@ -342,6 +342,7 @@ class UIActions:
         launch_character_creator(
             self.state.root,
             initial_path=self.state.character.character_path_value.get().strip(),
+            loop=self.state.loop,
         )
 
     def refresh_character_list(self) -> None:

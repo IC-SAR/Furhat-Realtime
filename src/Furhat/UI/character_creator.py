@@ -565,8 +565,9 @@ def save_character_payload(path: Path, payload: dict[str, Any]) -> None:
 
 
 class CharacterCreatorWindow:
-    def __init__(self, parent: tk.Misc, *, initial_path: str = "") -> None:
+    def __init__(self, parent: tk.Misc, *, initial_path: str = "", loop: asyncio.AbstractEventLoop | None = None) -> None:
         self.parent = parent
+        self.loop = loop
         self.window = tk.Toplevel(parent)
         self.window.title("Character Creator")
         self.window.configure(bg="#0f172a")
@@ -1079,6 +1080,7 @@ class CharacterCreatorWindow:
     def _test_on_robot(self) -> None:
         """Test the character settings on the Furhat robot."""
         def _run_test() -> None:
+            temp_path: str | None = None
             try:
                 # Collect current settings
                 payload = self._collect_payload()
@@ -1095,7 +1097,14 @@ class CharacterCreatorWindow:
                 
                 try:
                     # Apply the character to the robot and make it speak
-                    asyncio.run(robot.apply_character_file(temp_path, force_rag=False, speak_greeting=True))
+                    coro = robot.apply_character_file(temp_path, force_rag=False, speak_greeting=True)
+                    
+                    if self.loop:
+                        # Use the existing event loop from the main UI
+                        asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=30)
+                    else:
+                        # Fallback if no loop is available
+                        asyncio.run(coro)
                     
                     # Update status on UI
                     def _update_status() -> None:
@@ -1103,10 +1112,12 @@ class CharacterCreatorWindow:
                     
                     self.window.after(0, _update_status)
                 except Exception as exc:
+                    # Capture exception message in outer scope for nested function
+                    error_message = str(exc)
                     def _show_error() -> None:
                         messagebox.showerror(
                             "Character Creator",
-                            f"Failed to test character on Furhat:\n{exc}",
+                            f"Failed to test character on Furhat:\n{error_message}",
                             parent=self.window
                         )
                         self.status_var.set("Test failed - check Furhat connection")
@@ -1115,14 +1126,17 @@ class CharacterCreatorWindow:
                 finally:
                     # Clean up temp file
                     try:
-                        Path(temp_path).unlink(missing_ok=True)
+                        if temp_path:
+                            Path(temp_path).unlink(missing_ok=True)
                     except Exception:
                         pass
             except Exception as exc:
+                # Capture exception message in outer scope for nested function
+                error_message = str(exc)
                 def _show_error() -> None:
                     messagebox.showerror(
                         "Character Creator",
-                        f"Error preparing character test:\n{exc}",
+                        f"Error preparing character test:\n{error_message}",
                         parent=self.window
                     )
                     self.status_var.set("Test error - check settings")
@@ -1377,12 +1391,12 @@ class CharacterCreatorWindow:
         return value_out
 
 
-def launch_character_creator(parent: tk.Misc | None = None, *, initial_path: str = "") -> CharacterCreatorWindow:
+def launch_character_creator(parent: tk.Misc | None = None, *, initial_path: str = "", loop: asyncio.AbstractEventLoop | None = None) -> CharacterCreatorWindow:
     if parent is None:
         root = tk.Tk()
         root.withdraw()
-        creator = CharacterCreatorWindow(root, initial_path=initial_path)
+        creator = CharacterCreatorWindow(root, initial_path=initial_path, loop=loop)
         creator.window.protocol("WM_DELETE_WINDOW", root.destroy)
         creator.window.mainloop()
         return creator
-    return CharacterCreatorWindow(parent, initial_path=initial_path)
+    return CharacterCreatorWindow(parent, initial_path=initial_path, loop=loop)
