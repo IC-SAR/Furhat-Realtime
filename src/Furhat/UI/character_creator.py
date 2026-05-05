@@ -1137,6 +1137,40 @@ class CharacterCreatorWindow:
                     except Exception:
                         pass
 
+                # Also try to directly set the face on Furhat immediately (best-effort)
+                face_id = payload.get("faceId", "").strip()
+                if face_id:
+                    try:
+                        from furhat_realtime_api import AsyncFurhatClient
+
+                        async def _send_face() -> None:
+                            realtime_host = _resolve_realtime_host()
+                            client = AsyncFurhatClient(realtime_host)
+                            try:
+                                await asyncio.wait_for(client.connect(), timeout=6.0)
+                                try:
+                                    await asyncio.wait_for(
+                                        client.request_face_config(face_id=face_id),
+                                        timeout=6.0,
+                                    )
+                                except Exception:
+                                    pass
+                            finally:
+                                try:
+                                    await asyncio.wait_for(client.disconnect(), timeout=2.0)
+                                except Exception:
+                                    pass
+
+                        try:
+                            asyncio.run(_send_face())
+                            self.window.after(0, lambda: self.status_var.set(f"Requested face change: {face_id}"))
+                        except Exception:
+                            # ignore best-effort failure
+                            pass
+                    except Exception:
+                        # furhat client not available; ignore
+                        pass
+
             except Exception as exc:
                 def _show_error() -> None:
                     messagebox.showerror(
