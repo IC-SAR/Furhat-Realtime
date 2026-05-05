@@ -1113,14 +1113,8 @@ class CharacterCreatorWindow:
 
                 # Use runtime's scheduler so we don't interfere with event loops
                 try:
-                    # If runtime is connected, ask it to speak the greeting after applying
-                    speak_flag = False
-                    try:
-                        speak_flag = bool(getattr(runtime.runtime_status, "connected", False))
-                    except Exception:
-                        speak_flag = False
-
-                    coro = runtime.apply_character_file(str(tmp_path), speak_greeting=speak_flag)
+                    # Upload the character without greeting; the opening line is spoken directly below.
+                    coro = runtime.apply_character_file(str(tmp_path), speak_greeting=False)
                     runtime._schedule_coroutine(coro)
                     def _show_success() -> None:
                         self.status_var.set(f"Uploaded '{character_name}' to runtime")
@@ -1178,9 +1172,9 @@ class CharacterCreatorWindow:
                         # furhat client not available; ignore
                         pass
 
-                # Best-effort speak the opening line if runtime wasn't connected
+                # Best-effort speak the opening line directly on Furhat.
                 opening_line = payload.get("openingLine", "").strip()
-                if opening_line and not (getattr(runtime, "runtime_status", None) and getattr(runtime.runtime_status, "connected", False)):
+                if opening_line:
                     try:
                         from furhat_realtime_api import AsyncFurhatClient
 
