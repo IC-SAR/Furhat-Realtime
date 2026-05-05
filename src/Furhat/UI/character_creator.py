@@ -5,6 +5,7 @@ import asyncio
 import os
 import threading
 import tkinter as tk
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 from urllib.parse import urlparse
@@ -12,6 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from .. import paths, settings_store
+from ..Robot import robot
 
 FURHAT_REALTIME_DEFAULT_HOST = "127.0.0.1"
 
@@ -677,6 +679,17 @@ class CharacterCreatorWindow:
             pady=4,
             font=("Trebuchet MS", 9, "bold"),
         ).grid(row=0, column=3, padx=(0, 8))
+        tk.Button(
+            controls,
+            text="Test on Furhat",
+            command=self._test_on_robot,
+            fg="#f8fafc",
+            bg="#16a34a",
+            relief="flat",
+            padx=10,
+            pady=4,
+            font=("Trebuchet MS", 9, "bold"),
+        ).grid(row=0, column=4, padx=(0, 8))
 
         status = tk.Label(
             controls,
@@ -1062,6 +1075,65 @@ class CharacterCreatorWindow:
             messagebox.showerror("Character Creator", f"Failed to save character file:\n{exc}", parent=self.window)
             return
         self.status_var.set(f"Saved: {path}")
+
+    def _test_on_robot(self) -> None:
+        """Test the character settings on the Furhat robot."""
+        def _run_test() -> None:
+            try:
+                # Collect current settings
+                payload = self._collect_payload()
+                
+                # Create a temporary file for the test character
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    suffix=".json",
+                    delete=False,
+                    encoding="utf-8"
+                ) as temp_file:
+                    json.dump(payload, temp_file, indent=2, ensure_ascii=False)
+                    temp_path = temp_file.name
+                
+                try:
+                    # Apply the character to the robot and make it speak
+                    asyncio.run(robot.apply_character_file(temp_path, force_rag=False, speak_greeting=True))
+                    
+                    # Update status on UI
+                    def _update_status() -> None:
+                        self.status_var.set(f"Tested character '{self.name_value.get().strip()}' on Furhat")
+                    
+                    self.window.after(0, _update_status)
+                except Exception as exc:
+                    def _show_error() -> None:
+                        messagebox.showerror(
+                            "Character Creator",
+                            f"Failed to test character on Furhat:\n{exc}",
+                            parent=self.window
+                        )
+                        self.status_var.set("Test failed - check Furhat connection")
+                    
+                    self.window.after(0, _show_error)
+                finally:
+                    # Clean up temp file
+                    try:
+                        Path(temp_path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            except Exception as exc:
+                def _show_error() -> None:
+                    messagebox.showerror(
+                        "Character Creator",
+                        f"Error preparing character test:\n{exc}",
+                        parent=self.window
+                    )
+                    self.status_var.set("Test error - check settings")
+                
+                self.window.after(0, _show_error)
+        
+        # Update status
+        self.status_var.set("Testing character on Furhat...")
+        
+        # Run test in background thread to avoid blocking UI
+        threading.Thread(target=_run_test, daemon=True).start()
 
     def _open_advanced(self) -> None:
         if self.advanced_window is not None and self.advanced_window.winfo_exists():
