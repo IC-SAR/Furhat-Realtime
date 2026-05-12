@@ -316,14 +316,35 @@ def _merge_option_sources(*sources: list[str]) -> list[str]:
     return merged
 
 
-def _voice_sort_key(voice_label: str) -> tuple[str, str]:
-    label = str(voice_label or "").strip()
-    if not label:
-        return ("", "")
-    language_part, separator, remainder = label.partition(":")
-    if separator:
-        return (language_part.strip().lower(), remainder.strip().lower())
-    return ("", label.lower())
+def _voice_language_priority(language: str) -> tuple[int, str]:
+    normalized = str(language or "").strip().lower()
+    if not normalized:
+        return (999, "")
+    code = normalized.split("-", 1)[0]
+    priority = {
+        "en": 0,
+        "ko": 1,
+        "es": 2,
+        "fr": 3,
+        "de": 4,
+        "it": 5,
+    }.get(code, 99)
+    return (priority, normalized)
+
+
+def _voice_label_from_record(record: dict[str, str]) -> str:
+    label = record.get("voice_id") or record.get("name") or ""
+    return str(label).strip()
+
+
+def _sort_voice_records(records: list[dict[str, str]]) -> list[dict[str, str]]:
+    return sorted(
+        records,
+        key=lambda record: (
+            _voice_language_priority(record.get("language", "")),
+            _voice_label_from_record(record).lower(),
+        ),
+    )
 
 
 def _discover_character_field_options(app_root: Path) -> tuple[list[str], list[str], list[str]]:
@@ -386,7 +407,7 @@ def fetch_face_options(*, timeout_sec: float = 6.0) -> list[str]:
         return []
 
 
-def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[str], list[str]]:
+def fetch_voice_records(*, timeout_sec: float = 6.0) -> list[dict[str, str]]:
     debug_enabled = _debug_enabled()
     realtime_host = _resolve_realtime_host()
     try:
@@ -394,9 +415,9 @@ def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[st
     except Exception:
         if debug_enabled:
             _debug_print("Furhat voice status debug: furhat_realtime_api import failed; using fallback voices.")
-        return [], [], []
+        return []
 
-    async def _query() -> tuple[list[str], list[str], list[str]]:
+    async def _query() -> list[dict[str, str]]:
         client = AsyncFurhatClient(realtime_host)
         if debug_enabled:
             _debug_print(f"Furhat voice status debug: connecting to {realtime_host}")
@@ -413,14 +434,29 @@ def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[st
                 await asyncio.wait_for(client.disconnect(), timeout=2.0)
             except Exception:
                 pass
-        return _extract_voice_options(response)
+        return _extract_voice_records(response)
 
     try:
         return asyncio.run(_query())
     except Exception:
         if debug_enabled:
             _debug_print(f"Furhat voice status debug: request failed for {realtime_host}; using fallback voices.")
-        return [], [], []
+        return []
+
+
+def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[str], list[str]]:
+    records = fetch_voice_records(timeout_sec=timeout_sec)
+    voices = [_voice_label_from_record(record) for record in records if _voice_label_from_record(record)]
+    languages = []
+    genders = []
+    for record in records:
+        language = str(record.get("language", "")).strip()
+        gender = str(record.get("gender", "")).strip()
+        if language and language not in languages:
+            languages.append(language)
+        if gender and gender not in genders:
+            genders.append(gender)
+    return voices, languages, genders
 
 
 def fetch_character_field_options(
@@ -888,7 +924,6 @@ class CharacterCreatorWindow:
     def _set_voice_options(self, options: list[str]) -> None:
         if options:
             normalized = [str(item).strip() for item in options if item]
-            normalized.sort(key=_voice_sort_key)
         else:
             normalized = list(FALLBACK_VOICE_OPTIONS)
         if self.voice_combo is not None:
@@ -954,7 +989,18 @@ class CharacterCreatorWindow:
                 app_root = Path.cwd()
 
             faces = fetch_face_options()
-            voices, languages, genders = fetch_voice_options()
+            voice_records = fetch_voice_records()
+            voice_records = _sort_voice_records(voice_records)
+            voices = [_voice_label_from_record(record) for record in voice_records if _voice_label_from_record(record)]
+            languages: list[str] = []
+            genders: list[str] = []
+            for record in voice_records:
+                language = str(record.get("language", "")).strip()
+                gender = str(record.get("gender", "")).strip()
+                if language and language not in languages:
+                    languages.append(language)
+                if gender and gender not in genders:
+                    genders.append(gender)
             furhat_categories, furhat_initiatives, furhat_disengagements = fetch_character_field_options()
             discovered_categories, discovered_initiatives, discovered_disengagements = (
                 _discover_character_field_options(app_root)
