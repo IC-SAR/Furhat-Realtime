@@ -184,6 +184,43 @@ def _extract_voice_options(payload: Any) -> tuple[list[str], list[str], list[str
     return voices, languages, genders
 
 
+def _extract_voice_records(payload: Any) -> list[dict[str, str]]:
+    data = _coerce_payload(payload)
+    records: list[dict[str, str]] = []
+
+    def _clean(raw: Any) -> str:
+        return str(raw or "").strip()
+
+    def _add(record: Any) -> None:
+        if not isinstance(record, dict):
+            return
+        normalized = {
+            "voice_id": _clean(record.get("voice_id") or record.get("voiceId") or record.get("id")),
+            "name": _clean(record.get("name")),
+            "gender": _clean(record.get("gender")),
+            "language": _clean(record.get("language") or record.get("locale") or record.get("input_language")),
+            "provider": _clean(record.get("provider")),
+        }
+        if any(normalized.values()) and normalized not in records:
+            records.append(normalized)
+
+    if isinstance(data, dict):
+        voice_list = data.get("voice_list")
+        if isinstance(voice_list, list):
+            for item in voice_list:
+                parsed = _coerce_payload(item)
+                if isinstance(parsed, dict):
+                    _add(parsed)
+        _add(data)
+    elif isinstance(data, list):
+        for item in data:
+            parsed = _coerce_payload(item)
+            if isinstance(parsed, dict):
+                _add(parsed)
+
+    return records
+
+
 def _extract_character_field_options(payload: Any) -> tuple[list[str], list[str], list[str]]:
     data = _coerce_payload(payload)
     categories: list[str] = []
@@ -1207,19 +1244,41 @@ class CharacterCreatorWindow:
                                             )
                                         except Exception:
                                             resp = None
-                                        voices, _, _ = _extract_voice_options(resp) if resp is not None else ([], [], [])
+                                        voice_records = _extract_voice_records(resp) if resp is not None else []
                                         chosen_voice = voice_id
-                                        if voices:
-                                            if voice_id in voices:
-                                                chosen_voice = voice_id
-                                            else:
-                                                chosen_voice = voices[0]
-                                                # report fallback to UI
-                                                self.window.after(0, lambda: self.status_var.set(f"Voice '{voice_id}' unavailable; falling back to '{chosen_voice}'"))
+                                        chosen_record: dict[str, str] | None = None
+                                        if voice_records:
+                                            for record in voice_records:
+                                                record_name = record.get("name", "")
+                                                record_id = record.get("voice_id", "")
+                                                if voice_id in {record_name, record_id}:
+                                                    chosen_record = record
+                                                    chosen_voice = record_id or record_name or voice_id
+                                                    break
+                                            if chosen_record is None:
+                                                chosen_record = voice_records[0]
+                                                chosen_voice = (
+                                                    chosen_record.get("voice_id")
+                                                    or chosen_record.get("name")
+                                                    or voice_id
+                                                )
+                                                fallback_label = chosen_voice
+                                                self.window.after(
+                                                    0,
+                                                    lambda: self.status_var.set(
+                                                        f"Voice '{voice_id}' unavailable; falling back to '{fallback_label}'"
+                                                    ),
+                                                )
                                         if chosen_voice:
                                             try:
                                                 await asyncio.wait_for(
-                                                    client.request_voice_config(name=chosen_voice),
+                                                    client.request_voice_config(
+                                                        voice_id=(chosen_record or {}).get("voice_id") or None,
+                                                        name=(chosen_record or {}).get("name") or chosen_voice,
+                                                        gender=(chosen_record or {}).get("gender") or None,
+                                                        language=(chosen_record or {}).get("language") or None,
+                                                        provider=(chosen_record or {}).get("provider") or None,
+                                                    ),
                                                     timeout=6.0,
                                                 )
                                             except Exception:

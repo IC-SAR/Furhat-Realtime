@@ -54,6 +54,41 @@ def _extract_voice_name(voice_id: str) -> str:
     return voice_part
 
 
+def _extract_voice_records(payload: object) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+
+    def _clean(raw: object) -> str:
+        return str(raw or "").strip()
+
+    def _add(record: object) -> None:
+        if not isinstance(record, dict):
+            return
+        normalized = {
+            "voice_id": _clean(record.get("voice_id") or record.get("voiceId")),
+            "name": _clean(record.get("name")),
+            "gender": _clean(record.get("gender")),
+            "language": _clean(record.get("language") or record.get("locale") or record.get("input_language")),
+            "provider": _clean(record.get("provider")),
+        }
+        if any(normalized.values()) and normalized not in records:
+            records.append(normalized)
+
+    data = payload
+    if isinstance(data, dict):
+        voice_list = data.get("voice_list")
+        if isinstance(voice_list, list):
+            for item in voice_list:
+                if isinstance(item, dict):
+                    _add(item)
+        _add(data)
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                _add(item)
+
+    return records
+
+
 CONNECT_RETRY_MIN_SEC = 2.0
 CONNECT_RETRY_MAX_SEC = 20.0
 CONNECT_LOG_INTERVAL_SEC = 10.0
@@ -672,45 +707,26 @@ class RobotRuntime:
                                 resp = await self.furhat.request_voice_status(voice_id=True, voice_list=True)
                             except Exception:
                                 resp = None
-                            # Simple extraction of available voices from response
-                            available: list[str] = []
-                            if isinstance(resp, dict):
-                                voice_list = resp.get("voice_list")
-                                if isinstance(voice_list, list):
-                                    for item in voice_list:
-                                        if isinstance(item, str):
-                                            available.append(item)
-                                        elif isinstance(item, dict):
-                                            available.append(
-                                                item.get("voice_id")
-                                                or item.get("voiceId")
-                                                or item.get("id")
-                                                or item.get("name")
-                                            )
-                                # also try top-level keys
-                                top = resp.get("voice_id") or resp.get("voiceId")
-                                if isinstance(top, str) and top:
-                                    available.append(top)
-                            elif isinstance(resp, list):
-                                for item in resp:
-                                    if isinstance(item, str):
-                                        available.append(item)
-                                    elif isinstance(item, dict):
-                                        available.append(
-                                            item.get("voice_id")
-                                            or item.get("voiceId")
-                                            or item.get("id")
-                                            or item.get("name")
-                                        )
-
-                            # Filter/clean
-                            available = [v for v in (str(x).strip() for x in available) if v]
+                            available = _extract_voice_records(resp)
                             if available:
                                 fallback = available[0]
                                 try:
-                                    await self.furhat.request_set_voice(fallback)
-                                    self.current_voice_request = fallback
-                                    self._notify(f"applied fallback voice: {fallback}")
+                                    await self.furhat.request_voice_config(
+                                        voice_id=fallback.get("voice_id") or None,
+                                        name=fallback.get("name") or None,
+                                        gender=fallback.get("gender") or None,
+                                        language=fallback.get("language") or None,
+                                        provider=fallback.get("provider") or None,
+                                    )
+                                    self.current_voice_request = (
+                                        fallback.get("voice_id")
+                                        or fallback.get("name")
+                                        or voice_request
+                                    )
+                                    self._notify(
+                                        "applied fallback voice: "
+                                        f"{self.current_voice_request}"
+                                    )
                                 except Exception as exc2:
                                     logger.warning("Failed to set fallback voice: %s", exc2)
                                     self._notify(f"voice error: {exc}")
