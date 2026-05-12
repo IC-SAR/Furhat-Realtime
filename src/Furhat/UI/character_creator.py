@@ -418,16 +418,6 @@ def fetch_character_field_options(
                 pass
             try:
                 response = await asyncio.wait_for(
-                    client.request_voice_config(),
-                    timeout=timeout_sec,
-                )
-                if debug_enabled:
-                    print(f"Furhat voice_config field options raw payload: {response!r}", flush=True)
-                responses.append(response)
-            except Exception:
-                pass
-            try:
-                response = await asyncio.wait_for(
                     client.request_listen_config(),
                     timeout=timeout_sec,
                 )
