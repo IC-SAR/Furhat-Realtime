@@ -838,36 +838,46 @@ class CharacterCreatorWindow:
         return combo
 
     def _set_face_options(self, options: list[str]) -> None:
-        current = self.face_id_value.get().strip()
-        normalized = _dedupe_options(options, current)
-        if not normalized:
-            normalized = _dedupe_options(FALLBACK_FACE_OPTIONS, current)
+        if options:
+            normalized = [str(item).strip() for item in options if item]
+        else:
+            normalized = list(FALLBACK_FACE_OPTIONS)
         if self.face_combo is not None:
             self.face_combo.configure(values=normalized)
+            # If current value is not available, clear it so the UI shows a valid choice
+            if self.face_id_value.get().strip() not in normalized:
+                self.face_id_value.set(normalized[0] if normalized else "")
 
     def _set_voice_options(self, options: list[str]) -> None:
-        current = self.voice_id_value.get().strip()
-        normalized = _dedupe_options(options, current)
-        if not normalized:
-            normalized = _dedupe_options(FALLBACK_VOICE_OPTIONS, current)
+        if options:
+            normalized = [str(item).strip() for item in options if item]
+        else:
+            normalized = list(FALLBACK_VOICE_OPTIONS)
         if self.voice_combo is not None:
             self.voice_combo.configure(values=normalized)
+            # If current value is not available, clear it so the UI shows a valid choice
+            if self.voice_id_value.get().strip() not in normalized:
+                self.voice_id_value.set(normalized[0] if normalized else "")
 
     def _set_language_options(self, options: list[str]) -> None:
-        current = self.input_language_value.get().strip()
-        normalized = _dedupe_options(options, current)
-        if not normalized:
-            normalized = _dedupe_options(FALLBACK_LANGUAGE_OPTIONS, current)
+        if options:
+            normalized = [str(item).strip() for item in options if item]
+        else:
+            normalized = list(FALLBACK_LANGUAGE_OPTIONS)
         if self.language_combo is not None:
             self.language_combo.configure(values=normalized)
+            if self.input_language_value.get().strip() not in normalized:
+                self.input_language_value.set(normalized[0] if normalized else "")
 
     def _set_gender_options(self, options: list[str]) -> None:
-        current = self.gender_value.get().strip()
-        normalized = _dedupe_options(options, current)
-        if not normalized:
-            normalized = _dedupe_options(FALLBACK_GENDER_OPTIONS, current)
+        if options:
+            normalized = [str(item).strip() for item in options if item]
+        else:
+            normalized = list(FALLBACK_GENDER_OPTIONS)
         if self.gender_combo is not None:
             self.gender_combo.configure(values=normalized)
+            if self.gender_value.get().strip() not in normalized:
+                self.gender_value.set(normalized[0] if normalized else "")
 
     def _set_category_options(self, options: list[str]) -> None:
         current = self.category_value.get().strip()

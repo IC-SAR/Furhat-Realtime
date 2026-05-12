@@ -143,6 +143,8 @@ class RobotRuntime:
         self.active_session_id: int | None = None
         self.cancelled_session_ids: set[int] = set()
         self.last_completed_response = ""
+        self.current_face_id: str | None = None
+        self.current_voice_request: str | None = None
         self._init_client(robot_config.IP)
 
     def _init_client(self, ip_address: str) -> None:
@@ -650,11 +652,20 @@ class RobotRuntime:
         if self.voice_config.name and hasattr(self.furhat, "request_set_voice"):
             # Extract just the voice name, then build request with language if available
             voice_name = _extract_voice_name(self.voice_config.name)
-            if self.voice_config.language:
-                voice_request = f"{voice_name}|{self.voice_config.language}"
-                await self.furhat.request_set_voice(voice_request)
+            if not voice_name:
+                return
+            voice_request = f"{voice_name}|{self.voice_config.language}" if self.voice_config.language else voice_name
+            # Skip if we've already applied this exact voice request
+            if self.current_voice_request == voice_request:
+                logger.debug("Voice already applied: %s", voice_request)
             else:
-                await self.furhat.request_set_voice(voice_name)
+                try:
+                    await self.furhat.request_set_voice(voice_request)
+                    self.current_voice_request = voice_request
+                    self._notify(f"applied voice: {voice_request}")
+                except Exception as exc:
+                    logger.warning("Failed to set voice: %s", exc)
+                    self._notify(f"voice error: {exc}")
         if hasattr(self.furhat, "request_set_voice_parameters"):
             await self.furhat.request_set_voice_parameters(
                 rate=self.voice_config.rate,
@@ -717,7 +728,12 @@ class RobotRuntime:
             if self.runtime_status.connected:
                 try:
                     if hasattr(self.furhat, "request_face_config"):
-                        await self.furhat.request_face_config(face_id=character.face_id)
+                        if self.current_face_id != character.face_id:
+                            await self.furhat.request_face_config(face_id=character.face_id)
+                            self.current_face_id = character.face_id
+                            self._notify(f"applied face: {character.face_id}")
+                        else:
+                            logger.debug("Face already applied: %s", character.face_id)
                 except Exception as exc:
                     logger.warning("Failed to apply character face: %s", exc)
                     self._notify(f"character face error: {exc}")
@@ -734,7 +750,11 @@ class RobotRuntime:
                             return
                     try:
                         if hasattr(self.furhat, "request_face_config"):
+                            if self.current_face_id == face_id:
+                                self._notify(f"face already applied: {face_id}")
+                                return
                             await self.furhat.request_face_config(face_id=face_id)
+                            self.current_face_id = face_id
                             self._notify(f"applied face: {face_id}")
                     except Exception as exc:
                         logger.warning("Failed to apply deferred character face: %s", exc)
