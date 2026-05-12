@@ -54,6 +54,26 @@ def _extract_voice_name(voice_id: str) -> str:
     return voice_part
 
 
+def _parse_voice_descriptor(voice_label: str) -> tuple[str, str, str]:
+    label = str(voice_label or "").strip()
+    if not label:
+        return "", "", ""
+
+    voice_name = _extract_voice_name(label).strip()
+    gender = ""
+    provider = ""
+
+    if "(" in label and ")" in label:
+        suffix = label.split("(", 1)[1].rsplit(")", 1)[0].strip()
+        parts = [part.strip() for part in suffix.split(",") if part.strip()]
+        if parts:
+            gender = parts[0]
+        if len(parts) > 1:
+            provider = ", ".join(parts[1:])
+
+    return voice_name, gender, provider
+
+
 def _extract_voice_records(payload: object) -> list[dict[str, str]]:
     records: list[dict[str, str]] = []
 
@@ -684,23 +704,26 @@ class RobotRuntime:
         self.voice_config.language = language.strip()
 
     async def apply_voice_settings(self) -> None:
-        if self.voice_config.name and hasattr(self.furhat, "request_set_voice"):
-            # Extract just the voice name, then build request with language if available
-            voice_name = _extract_voice_name(self.voice_config.name)
+        if self.voice_config.name and hasattr(self.furhat, "request_voice_config"):
+            voice_name, gender, provider = _parse_voice_descriptor(self.voice_config.name)
             if not voice_name:
                 return
+
             voice_request = f"{voice_name}|{self.voice_config.language}" if self.voice_config.language else voice_name
-            # Skip if we've already applied this exact voice request
             if self.current_voice_request == voice_request:
                 logger.debug("Voice already applied: %s", voice_request)
             else:
                 try:
-                    await self.furhat.request_set_voice(voice_request)
+                    await self.furhat.request_voice_config(
+                        name=voice_name,
+                        gender=gender or None,
+                        language=self.voice_config.language or None,
+                        provider=provider or None,
+                    )
                     self.current_voice_request = voice_request
                     self._notify(f"applied voice: {voice_request}")
                 except Exception as exc:
                     logger.warning("Failed to set voice: %s", exc)
-                    # Try to fallback to an available voice reported by the Furhat if possible
                     try:
                         if hasattr(self.furhat, "request_voice_status"):
                             try:
@@ -723,13 +746,10 @@ class RobotRuntime:
                                         or fallback.get("name")
                                         or voice_request
                                     )
-                                    self._notify(
-                                        "applied fallback voice: "
-                                        f"{self.current_voice_request}"
-                                    )
+                                    self._notify(f"applied fallback voice: {self.current_voice_request}")
                                 except Exception as exc2:
                                     logger.warning("Failed to set fallback voice: %s", exc2)
-                                    self._notify(f"voice error: {exc}")
+                                    self._notify(f"voice error: {exc2}")
                             else:
                                 self._notify(f"voice error: {exc}")
                     except Exception:

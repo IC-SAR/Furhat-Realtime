@@ -43,7 +43,16 @@ class FurhatClientProtocol(Protocol):
 
     async def request_speak_stop(self) -> None: ...
 
-    async def request_set_voice(self, name: str) -> None: ...
+    async def request_voice_config(
+        self,
+        *,
+        voice_id: str | None = None,
+        name: str | None = None,
+        gender: str | None = None,
+        language: str | None = None,
+        provider: str | None = None,
+        input_language: bool = True,
+    ) -> None: ...
 
     async def request_set_voice_parameters(self, *, rate: float, volume: float) -> None: ...
 
