@@ -1160,10 +1160,23 @@ class CharacterCreatorWindow:
                             try:
                                 await asyncio.wait_for(client.connect(), timeout=6.0)
                                 try:
-                                    await asyncio.wait_for(
-                                        client.request_face_config(face_id=face_id),
-                                        timeout=6.0,
-                                    )
+                                    # Check available faces first to avoid "No face found" server logs
+                                    try:
+                                        resp = await asyncio.wait_for(
+                                            client.request_face_status(face_id=True, face_list=True),
+                                            timeout=4.0,
+                                        )
+                                    except Exception:
+                                        resp = None
+                                    available = _extract_face_ids(resp) if resp is not None else []
+                                    if not available or face_id in available:
+                                        try:
+                                            await asyncio.wait_for(
+                                                client.request_face_config(face_id=face_id),
+                                                timeout=6.0,
+                                            )
+                                        except Exception:
+                                            pass
                                 except Exception:
                                     pass
                             finally:
@@ -1196,10 +1209,31 @@ class CharacterCreatorWindow:
                                 await asyncio.wait_for(client.connect(), timeout=6.0)
                                 if voice_id:
                                     try:
-                                        await asyncio.wait_for(
-                                            client.request_voice_config(name=voice_id),
-                                            timeout=6.0,
-                                        )
+                                        # Query available voices first to avoid "No voice found" logs
+                                        try:
+                                            resp = await asyncio.wait_for(
+                                                client.request_voice_status(voice_id=True, voice_list=True),
+                                                timeout=4.0,
+                                            )
+                                        except Exception:
+                                            resp = None
+                                        voices, _, _ = _extract_voice_options(resp) if resp is not None else ([], [], [])
+                                        chosen_voice = voice_id
+                                        if voices:
+                                            if voice_id in voices:
+                                                chosen_voice = voice_id
+                                            else:
+                                                chosen_voice = voices[0]
+                                                # report fallback to UI
+                                                self.window.after(0, lambda: self.status_var.set(f"Voice '{voice_id}' unavailable; falling back to '{chosen_voice}'"))
+                                        if chosen_voice:
+                                            try:
+                                                await asyncio.wait_for(
+                                                    client.request_voice_config(name=chosen_voice),
+                                                    timeout=6.0,
+                                                )
+                                            except Exception:
+                                                pass
                                     except Exception:
                                         pass
                                 try:

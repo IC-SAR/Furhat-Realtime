@@ -665,7 +665,59 @@ class RobotRuntime:
                     self._notify(f"applied voice: {voice_request}")
                 except Exception as exc:
                     logger.warning("Failed to set voice: %s", exc)
-                    self._notify(f"voice error: {exc}")
+                    # Try to fallback to an available voice reported by the Furhat if possible
+                    try:
+                        if hasattr(self.furhat, "request_voice_status"):
+                            try:
+                                resp = await self.furhat.request_voice_status(voice_id=True, voice_list=True)
+                            except Exception:
+                                resp = None
+                            # Simple extraction of available voices from response
+                            available: list[str] = []
+                            if isinstance(resp, dict):
+                                voice_list = resp.get("voice_list")
+                                if isinstance(voice_list, list):
+                                    for item in voice_list:
+                                        if isinstance(item, str):
+                                            available.append(item)
+                                        elif isinstance(item, dict):
+                                            available.append(
+                                                item.get("voice_id")
+                                                or item.get("voiceId")
+                                                or item.get("id")
+                                                or item.get("name")
+                                            )
+                                # also try top-level keys
+                                top = resp.get("voice_id") or resp.get("voiceId")
+                                if isinstance(top, str) and top:
+                                    available.append(top)
+                            elif isinstance(resp, list):
+                                for item in resp:
+                                    if isinstance(item, str):
+                                        available.append(item)
+                                    elif isinstance(item, dict):
+                                        available.append(
+                                            item.get("voice_id")
+                                            or item.get("voiceId")
+                                            or item.get("id")
+                                            or item.get("name")
+                                        )
+
+                            # Filter/clean
+                            available = [v for v in (str(x).strip() for x in available) if v]
+                            if available:
+                                fallback = available[0]
+                                try:
+                                    await self.furhat.request_set_voice(fallback)
+                                    self.current_voice_request = fallback
+                                    self._notify(f"applied fallback voice: {fallback}")
+                                except Exception as exc2:
+                                    logger.warning("Failed to set fallback voice: %s", exc2)
+                                    self._notify(f"voice error: {exc}")
+                            else:
+                                self._notify(f"voice error: {exc}")
+                    except Exception:
+                        self._notify(f"voice error: {exc}")
         if hasattr(self.furhat, "request_set_voice_parameters"):
             await self.furhat.request_set_voice_parameters(
                 rate=self.voice_config.rate,
