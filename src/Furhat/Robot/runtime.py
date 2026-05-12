@@ -24,6 +24,36 @@ from .state import CharacterInfo, ListenConfig, RuntimeStatus, TranscriptTurn, V
 
 logger = logging.getLogger(__name__)
 
+
+def _extract_voice_name(voice_id: str) -> str:
+    """
+    Extract just the voice name from a descriptive voice ID.
+    
+    Converts:
+      "English (United States): AndrewNeural (Male, Microsoft Azure)"
+    to:
+      "AndrewNeural"
+    
+    Falls back to the original string if parsing fails.
+    """
+    if not voice_id or ":" not in voice_id:
+        return voice_id  # Return as-is if no colon (simple voice name)
+    
+    # Split on the colon to get the part after language description
+    parts = voice_id.split(":", 1)
+    if len(parts) != 2:
+        return voice_id
+    
+    voice_part = parts[1].strip()
+    
+    # Extract the voice name (first word before opening paren)
+    if "(" in voice_part:
+        voice_name = voice_part.split("(")[0].strip()
+        return voice_name if voice_name else voice_id
+    
+    return voice_part
+
+
 CONNECT_RETRY_MIN_SEC = 2.0
 CONNECT_RETRY_MAX_SEC = 20.0
 CONNECT_LOG_INTERVAL_SEC = 10.0
@@ -618,12 +648,13 @@ class RobotRuntime:
 
     async def apply_voice_settings(self) -> None:
         if self.voice_config.name and hasattr(self.furhat, "request_set_voice"):
-            # Build voice request with language if available
+            # Extract just the voice name, then build request with language if available
+            voice_name = _extract_voice_name(self.voice_config.name)
             if self.voice_config.language:
-                voice_request = f"{self.voice_config.name}|{self.voice_config.language}"
+                voice_request = f"{voice_name}|{self.voice_config.language}"
                 await self.furhat.request_set_voice(voice_request)
             else:
-                await self.furhat.request_set_voice(self.voice_config.name)
+                await self.furhat.request_set_voice(voice_name)
         if hasattr(self.furhat, "request_set_voice_parameters"):
             await self.furhat.request_set_voice_parameters(
                 rate=self.voice_config.rate,
