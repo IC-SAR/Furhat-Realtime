@@ -72,6 +72,7 @@ class VoiceSettings:
     name: str = ""
     rate: float = 1.0
     volume: float = 1.0
+    language: str = ""
 
     @classmethod
     def from_dict(cls, data: object) -> "VoiceSettings":
@@ -81,6 +82,7 @@ class VoiceSettings:
             name=str(data.get("name", "")).strip(),
             rate=float(data.get("rate", 1.0)),
             volume=float(data.get("volume", 1.0)),
+            language=str(data.get("language", "")).strip(),
         )
 
     def to_dict(self) -> dict[str, float | str]:
@@ -88,6 +90,7 @@ class VoiceSettings:
             "name": self.name,
             "rate": self.rate,
             "volume": self.volume,
+            "language": self.language,
         }
 
 

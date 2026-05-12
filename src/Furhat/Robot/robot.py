@@ -119,8 +119,8 @@ def get_voice_settings() -> dict[str, float | str]:
     return runtime.get_voice_settings()
 
 
-def set_voice_settings(name: str, rate: float, volume: float) -> None:
-    runtime.set_voice_settings(name, rate, volume)
+def set_voice_settings(name: str, rate: float, volume: float, language: str = "") -> None:
+    runtime.set_voice_settings(name, rate, volume, language=language)
 
 
 async def apply_voice_settings() -> None:

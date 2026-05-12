@@ -824,6 +824,7 @@ class UIActions:
             settings.voice.name,
             settings.voice.rate,
             settings.voice.volume,
+            language=settings.voice.language,
         )
         self._run_coroutine(robot.apply_voice_settings())
 
@@ -1362,7 +1363,7 @@ class UIActions:
             stop_user_end=settings.listen.stop_user_end,
             stop_robot_start=settings.listen.stop_robot_start,
         )
-        robot.set_voice_settings(settings.voice.name, settings.voice.rate, settings.voice.volume)
+        robot.set_voice_settings(settings.voice.name, settings.voice.rate, settings.voice.volume, language=settings.voice.language)
         if self.state.settings.provider_value is not None:
             self.state.settings.provider_value.set(settings.provider)
         if self.state.settings.api_base_url_value is not None:

@@ -113,6 +113,7 @@ class CharacterData:
     description: str
     opening_line: str
     voice_id: str
+    input_language_id: str
     face_id: str
     external_links: list[str]
 
@@ -520,6 +521,7 @@ def load_character(path: Path) -> CharacterData:
     description = str(data.get("description", "")).strip()
     opening_line = str(data.get("openingLine", "")).strip()
     voice_id = str(data.get("voiceId", "")).strip()
+    input_language_id = str(data.get("inputLanguageId", "")).strip()
     face_id = str(data.get("faceId", "")).strip()
     external_links = _extract_links(data.get("externalLinks", []))
     return CharacterData(
@@ -529,6 +531,7 @@ def load_character(path: Path) -> CharacterData:
         description=description,
         opening_line=opening_line,
         voice_id=voice_id,
+        input_language_id=input_language_id,
         face_id=face_id,
         external_links=external_links,
     )

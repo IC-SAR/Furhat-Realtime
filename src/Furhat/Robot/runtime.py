@@ -174,6 +174,7 @@ class RobotRuntime:
                 settings.voice.name,
                 settings.voice.rate,
                 settings.voice.volume,
+                language=settings.voice.language,
             )
         except Exception as exc:
             logger.warning("Failed to apply voice settings: %s", exc)
@@ -219,6 +220,7 @@ class RobotRuntime:
                 agent_name=character.agent_name,
                 description=character.description,
                 voice_id=character.voice_id,
+                input_language_id=character.input_language_id,
                 opening_line=character.opening_line,
             )
             self._apply_character_prompt()
@@ -443,6 +445,7 @@ class RobotRuntime:
                         self.character_info.voice_id,
                         self.voice_config.rate,
                         self.voice_config.volume,
+                        language=self.character_info.input_language_id,
                     )
                     await self.apply_voice_settings()
                 except Exception as exc:
@@ -603,7 +606,7 @@ class RobotRuntime:
     def get_voice_settings(self) -> dict[str, float | str]:
         return self.voice_config.to_dict()
 
-    def set_voice_settings(self, name: str, rate: float, volume: float) -> None:
+    def set_voice_settings(self, name: str, rate: float, volume: float, language: str = "") -> None:
         if rate <= 0:
             raise ValueError("Rate must be > 0.")
         if volume <= 0:
@@ -611,10 +614,16 @@ class RobotRuntime:
         self.voice_config.name = name.strip()
         self.voice_config.rate = float(rate)
         self.voice_config.volume = float(volume)
+        self.voice_config.language = language.strip()
 
     async def apply_voice_settings(self) -> None:
         if self.voice_config.name and hasattr(self.furhat, "request_set_voice"):
-            await self.furhat.request_set_voice(self.voice_config.name)
+            # Build voice request with language if available
+            if self.voice_config.language:
+                voice_request = f"{self.voice_config.name}|{self.voice_config.language}"
+                await self.furhat.request_set_voice(voice_request)
+            else:
+                await self.furhat.request_set_voice(self.voice_config.name)
         if hasattr(self.furhat, "request_set_voice_parameters"):
             await self.furhat.request_set_voice_parameters(
                 rate=self.voice_config.rate,
@@ -642,6 +651,7 @@ class RobotRuntime:
             agent_name=character.agent_name,
             description=character.description,
             voice_id=character.voice_id,
+            input_language_id=character.input_language_id,
             opening_line=character.opening_line,
         )
         self._apply_character_prompt()
@@ -663,6 +673,7 @@ class RobotRuntime:
                     character.voice_id,
                     self.voice_config.rate,
                     self.voice_config.volume,
+                    language=character.input_language_id,
                 )
                 await self.apply_voice_settings()
             except Exception as exc:

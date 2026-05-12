@@ -11,6 +11,7 @@ class CharacterInfo:
     agent_name: str = ""
     description: str = ""
     voice_id: str = ""
+    input_language_id: str = ""
     opening_line: str = ""
 
     def to_dict(self) -> dict[str, str]:
@@ -21,6 +22,7 @@ class CharacterInfo:
             "agent_name": self.agent_name,
             "description": self.description,
             "voice_id": self.voice_id,
+            "input_language_id": self.input_language_id,
             "opening_line": self.opening_line,
         }
 
@@ -72,12 +74,14 @@ class VoiceConfig:
     name: str = ""
     rate: float = 1.0
     volume: float = 1.0
+    language: str = ""
 
     def to_dict(self) -> dict[str, float | str]:
         return {
             "name": self.name,
             "rate": self.rate,
             "volume": self.volume,
+            "language": self.language,
         }
 
 
