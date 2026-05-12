@@ -316,6 +316,16 @@ def _merge_option_sources(*sources: list[str]) -> list[str]:
     return merged
 
 
+def _voice_sort_key(voice_label: str) -> tuple[str, str]:
+    label = str(voice_label or "").strip()
+    if not label:
+        return ("", "")
+    language_part, separator, remainder = label.partition(":")
+    if separator:
+        return (language_part.strip().lower(), remainder.strip().lower())
+    return ("", label.lower())
+
+
 def _discover_character_field_options(app_root: Path) -> tuple[list[str], list[str], list[str]]:
     categories: list[str] = []
     initiatives: list[str] = []
@@ -878,6 +888,7 @@ class CharacterCreatorWindow:
     def _set_voice_options(self, options: list[str]) -> None:
         if options:
             normalized = [str(item).strip() for item in options if item]
+            normalized.sort(key=_voice_sort_key)
         else:
             normalized = list(FALLBACK_VOICE_OPTIONS)
         if self.voice_combo is not None:
