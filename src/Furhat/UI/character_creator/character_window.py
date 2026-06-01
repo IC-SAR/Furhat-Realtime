@@ -289,7 +289,7 @@ class CharacterCreatorWindow:
             parent,
             textvariable=variable,
             fg="#0f172a",
-            bg="#e2e80",
+            bg="#e2e8f0",
             relief="flat",
         ).grid(row=row, column=1, sticky="ew", pady=6, padx=(10, 18))
 
