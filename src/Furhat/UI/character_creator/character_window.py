@@ -2,639 +2,42 @@ from __future__ import annotations
 
 import json
 import asyncio
-import os
+import tempfile
 import threading
 import tkinter as tk
-import tempfile
 from copy import deepcopy
 from pathlib import Path
-from urllib.parse import urlparse
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-from .. import paths, settings_store
-from ..Robot import robot
-
-FURHAT_REALTIME_DEFAULT_HOST = "127.0.0.1"
-
-DEFAULT_CHARACTER_TEMPLATE: dict[str, Any] = {
-    "id": "",
-    "name": "",
-    "voiceId": "English (United States): AndrewNeural (Male, Microsoft Azure)",
-    "voiceExpressivity": False,
-    "inputLanguageId": "en-US",
-    "gender": "Male",
-    "faceId": "adult-Alex",
-    "agentName": "Pepper",
-    "description": "",
-    "expressiveness": 1.1,
-    "expressivenessFrequency": 8.0,
-    "externalLinks": [],
-    "category": "Private",
-    "initiative": "User",
-    "openingLine": "",
-    "useCamera": False,
-    "canEndConversation": True,
-    "disengagementThreshold": "Medium",
-    "useHeadPose": False,
-    "logInteractions": False,
-    "actionSchema": [],
-}
-
-FALLBACK_FACE_OPTIONS = [
-    "adult-Alex",
-    "adult-Isabel",
-    "adult-Sam",
-    "adult-Tiago",
-    "adult-Yumi",
-    "child-Luke",
-    "child-Maya",
-]
-
-FALLBACK_VOICE_OPTIONS = [
-    "English (United States): AndrewNeural (Male, Microsoft Azure)",
-    "English (United States): JennyNeural (Female, Microsoft Azure)",
-    "English (United States): GuyNeural (Male, Microsoft Azure)",
-    "English (United Kingdom): RyanNeural (Male, Microsoft Azure)",
-    "English (United Kingdom): SoniaNeural (Female, Microsoft Azure)",
-]
-
-FALLBACK_LANGUAGE_OPTIONS = ["en-US", "en-GB", "es-ES", "fr-FR", "de-DE", "it-IT"]
-FALLBACK_GENDER_OPTIONS = ["Male", "Female", "Neutral"]
-FALLBACK_CATEGORY_OPTIONS = ["Private", "Public"]
-FALLBACK_INITIATIVE_OPTIONS = ["User", "System"]
-FALLBACK_DISENGAGEMENT_OPTIONS = ["Low", "Medium", "High"]
-
-
-def _debug_enabled() -> bool:
-    return os.getenv("CHARACTER_CREATOR_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _debug_print(message: str) -> None:
-    print(message, flush=True)
-
-
-def _dedupe_options(options: list[str], value: str) -> list[str]:
-    normalized = [item for item in options if item]
-    if value and value not in normalized:
-        normalized = [value] + normalized
-    return normalized
-
-
-def _resolve_realtime_host() -> str:
-    try:
-        settings = settings_store.load_settings()
-        raw_host = str(getattr(settings, "ip", "")).strip()
-    except Exception:
-        raw_host = ""
-
-    if not raw_host:
-        return FURHAT_REALTIME_DEFAULT_HOST
-
-    parsed = urlparse(raw_host if "://" in raw_host else f"//{raw_host}")
-    host = (parsed.hostname or "").strip()
-    if host:
-        return host
-
-    return raw_host.split(":", 1)[0].split("/", 1)[0] or FURHAT_REALTIME_DEFAULT_HOST
-
-
-def _coerce_payload(value: Any) -> Any:
-    if isinstance(value, (dict, list, tuple, str, int, float, bool)) or value is None:
-        return value
-    if hasattr(value, "to_dict"):
-        try:
-            return value.to_dict()
-        except Exception:
-            pass
-    if hasattr(value, "__dict__"):
-        try:
-            return vars(value)
-        except Exception:
-            pass
-    return value
-
-
-def _extract_face_ids(payload: Any) -> list[str]:
-    data = _coerce_payload(payload)
-    values: list[str] = []
-
-    def _add(raw: Any) -> None:
-        text = str(raw or "").strip()
-        if text and text not in values:
-            values.append(text)
-
-    if isinstance(data, dict):
-        # Most common response shape from request_face_status.
-        face_list = data.get("face_list")
-        if isinstance(face_list, list):
-            for item in face_list:
-                parsed = _coerce_payload(item)
-                if isinstance(parsed, str):
-                    _add(parsed)
-                elif isinstance(parsed, dict):
-                    _add(parsed.get("face_id") or parsed.get("faceId") or parsed.get("id") or parsed.get("name"))
-        _add(data.get("face_id") or data.get("faceId"))
-    elif isinstance(data, list):
-        for item in data:
-            parsed = _coerce_payload(item)
-            if isinstance(parsed, str):
-                _add(parsed)
-            elif isinstance(parsed, dict):
-                _add(parsed.get("face_id") or parsed.get("faceId") or parsed.get("id") or parsed.get("name"))
-
-    return values
-
-
-def _extract_voice_options(payload: Any) -> tuple[list[str], list[str], list[str]]:
-    data = _coerce_payload(payload)
-    voices: list[str] = []
-    languages: list[str] = []
-    genders: list[str] = []
-
-    def _add_text(target: list[str], raw: Any) -> None:
-        text = str(raw or "").strip()
-        if text and text not in target:
-            target.append(text)
-
-    def _consume(item: Any) -> None:
-        parsed = _coerce_payload(item)
-        if isinstance(parsed, str):
-            _add_text(voices, parsed)
-            return
-        if not isinstance(parsed, dict):
-            return
-        _add_text(
-            voices,
-            parsed.get("voice_id") or parsed.get("voiceId") or parsed.get("id") or parsed.get("name"),
-        )
-        _add_text(languages, parsed.get("language") or parsed.get("locale") or parsed.get("input_language"))
-        _add_text(genders, parsed.get("gender"))
-
-    if isinstance(data, dict):
-        voice_list = data.get("voice_list")
-        if isinstance(voice_list, list):
-            for item in voice_list:
-                _consume(item)
-        _consume(data)
-    elif isinstance(data, list):
-        for item in data:
-            _consume(item)
-
-    return voices, languages, genders
-
-
-def _extract_voice_records(payload: Any) -> list[dict[str, str]]:
-    data = _coerce_payload(payload)
-    records: list[dict[str, str]] = []
-
-    def _clean(raw: Any) -> str:
-        return str(raw or "").strip()
-
-    def _add(record: Any) -> None:
-        if not isinstance(record, dict):
-            return
-        normalized = {
-            "voice_id": _clean(record.get("voice_id") or record.get("voiceId") or record.get("id")),
-            "name": _clean(record.get("name")),
-            "gender": _clean(record.get("gender")),
-            "language": _clean(record.get("language") or record.get("locale") or record.get("input_language")),
-            "provider": _clean(record.get("provider")),
-        }
-        if any(normalized.values()) and normalized not in records:
-            records.append(normalized)
-
-    if isinstance(data, dict):
-        voice_list = data.get("voice_list")
-        if isinstance(voice_list, list):
-            for item in voice_list:
-                parsed = _coerce_payload(item)
-                if isinstance(parsed, dict):
-                    _add(parsed)
-        _add(data)
-    elif isinstance(data, list):
-        for item in data:
-            parsed = _coerce_payload(item)
-            if isinstance(parsed, dict):
-                _add(parsed)
-
-    return records
-
-
-def _extract_character_field_options(payload: Any) -> tuple[list[str], list[str], list[str]]:
-    data = _coerce_payload(payload)
-    categories: list[str] = []
-    initiatives: list[str] = []
-    disengagements: list[str] = []
-
-    category_keys = {"category", "categories"}
-    initiative_keys = {"initiative", "initiatives"}
-    disengagement_keys = {
-        "disengagementthreshold",
-        "disengagement",
-        "disengagements",
-        "disengagementthresholds",
-    }
-
-    option_value_keys = {
-        "id",
-        "name",
-        "value",
-        "label",
-        "key",
-        "option",
-        "type",
-        "category",
-        "initiative",
-        "disengagementthreshold",
-        "disengagement",
-        "disengagementthresholds",
-    }
-
-    def _normalize_key(key: str) -> str:
-        return str(key or "").strip().lower().replace("-", "").replace("_", "")
-
-    def _add(target: list[str], raw: Any) -> None:
-        text = str(raw or "").strip()
-        if text and text not in target:
-            target.append(text)
-
-    def _consume(key: str, value: Any) -> None:
-        target: list[str] | None = None
-        normalized_key = _normalize_key(key)
-        if normalized_key in category_keys:
-            target = categories
-        elif normalized_key in initiative_keys:
-            target = initiatives
-        elif normalized_key in disengagement_keys:
-            target = disengagements
-        if target is None:
-            return
-        parsed = _coerce_payload(value)
-
-        if isinstance(parsed, dict):
-            for nested_key, nested_value in parsed.items():
-                nested_normalized_key = _normalize_key(str(nested_key))
-                if nested_normalized_key in option_value_keys:
-                    _add(target, nested_value)
-
-        if isinstance(parsed, list):
-            for item in parsed:
-                coerced_item = _coerce_payload(item)
-                if isinstance(coerced_item, (str, int, float, bool)):
-                    _add(target, coerced_item)
-                elif isinstance(coerced_item, dict):
-                    for item_key, item_value in coerced_item.items():
-                        item_normalized_key = _normalize_key(str(item_key))
-                        if item_normalized_key in option_value_keys:
-                            _add(target, item_value)
-        elif isinstance(parsed, (str, int, float, bool)):
-            _add(target, parsed)
-
-    def _walk(node: Any) -> None:
-        parsed = _coerce_payload(node)
-        if isinstance(parsed, dict):
-            for key, value in parsed.items():
-                _consume(str(key), value)
-                _walk(value)
-            return
-        if isinstance(parsed, list):
-            for item in parsed:
-                _walk(item)
-
-    _walk(data)
-    return categories, initiatives, disengagements
-
-
-def _merge_option_sources(*sources: list[str]) -> list[str]:
-    merged: list[str] = []
-    for source in sources:
-        for item in source:
-            text = str(item or "").strip()
-            if text and text not in merged:
-                merged.append(text)
-    return merged
-
-
-def _voice_language_priority(language: str) -> tuple[int, str]:
-    normalized = str(language or "").strip().lower()
-    if not normalized:
-        return (999, "")
-    code = normalized.split("-", 1)[0]
-    priority = {
-        "en": 0,
-        "ko": 1,
-        "es": 2,
-        "fr": 3,
-        "de": 4,
-        "it": 5,
-    }.get(code, 99)
-    return (priority, normalized)
-
-
-def _voice_label_from_record(record: dict[str, str]) -> str:
-    label = record.get("voice_id") or record.get("name") or ""
-    return str(label).strip()
-
-
-def _sort_voice_records(records: list[dict[str, str]]) -> list[dict[str, str]]:
-    return sorted(
-        records,
-        key=lambda record: (
-            _voice_language_priority(record.get("language", "")),
-            _voice_label_from_record(record).lower(),
-        ),
-    )
-
-
-def _discover_character_field_options(app_root: Path) -> tuple[list[str], list[str], list[str]]:
-    categories: list[str] = []
-    initiatives: list[str] = []
-    disengagements: list[str] = []
-
-    def _add(target: list[str], raw: Any) -> None:
-        text = str(raw or "").strip()
-        if text and text not in target:
-            target.append(text)
-
-    for path in sorted(app_root.glob("*.json")):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if not isinstance(payload, dict) or "externalLinks" not in payload:
-            continue
-        _add(categories, payload.get("category"))
-        _add(initiatives, payload.get("initiative"))
-        _add(disengagements, payload.get("disengagementThreshold"))
-    return categories, initiatives, disengagements
-
-
-def fetch_face_options(*, timeout_sec: float = 6.0) -> list[str]:
-    debug_enabled = _debug_enabled()
-    realtime_host = _resolve_realtime_host()
-    try:
-        from furhat_realtime_api import AsyncFurhatClient
-    except Exception:
-        if debug_enabled:
-            _debug_print("Furhat face status debug: furhat_realtime_api import failed; using fallback faces.")
-        return []
-
-    async def _query() -> list[str]:
-        client = AsyncFurhatClient(realtime_host)
-        if debug_enabled:
-            _debug_print(f"Furhat face status debug: connecting to {realtime_host}")
-        await asyncio.wait_for(client.connect(), timeout=timeout_sec)
-        try:
-            response = await asyncio.wait_for(
-                client.request_face_status(face_id=True, face_list=True),
-                timeout=timeout_sec,
-            )
-            if debug_enabled:
-                print(f"Furhat face status raw payload: {response!r}", flush=True)
-        finally:
-            try:
-                await asyncio.wait_for(client.disconnect(), timeout=2.0)
-            except Exception:
-                pass
-        return _extract_face_ids(response)
-
-    try:
-        return asyncio.run(_query())
-    except Exception:
-        if debug_enabled:
-            _debug_print(f"Furhat face status debug: request failed for {realtime_host}; using fallback faces.")
-        return []
-
-
-def fetch_voice_records(*, timeout_sec: float = 6.0) -> list[dict[str, str]]:
-    debug_enabled = _debug_enabled()
-    realtime_host = _resolve_realtime_host()
-    try:
-        from furhat_realtime_api import AsyncFurhatClient
-    except Exception:
-        if debug_enabled:
-            _debug_print("Furhat voice status debug: furhat_realtime_api import failed; using fallback voices.")
-        return []
-
-    async def _query() -> list[dict[str, str]]:
-        client = AsyncFurhatClient(realtime_host)
-        if debug_enabled:
-            _debug_print(f"Furhat voice status debug: connecting to {realtime_host}")
-        await asyncio.wait_for(client.connect(), timeout=timeout_sec)
-        try:
-            response = await asyncio.wait_for(
-                client.request_voice_status(voice_id=True, voice_list=True),
-                timeout=timeout_sec,
-            )
-            if debug_enabled:
-                print(f"Furhat voice status raw payload: {response!r}", flush=True)
-        finally:
-            try:
-                await asyncio.wait_for(client.disconnect(), timeout=2.0)
-            except Exception:
-                pass
-        return _extract_voice_records(response)
-
-    try:
-        return asyncio.run(_query())
-    except Exception:
-        if debug_enabled:
-            _debug_print(f"Furhat voice status debug: request failed for {realtime_host}; using fallback voices.")
-        return []
-
-
-def fetch_voice_options(*, timeout_sec: float = 6.0) -> tuple[list[str], list[str], list[str]]:
-    records = fetch_voice_records(timeout_sec=timeout_sec)
-    voices = [_voice_label_from_record(record) for record in records if _voice_label_from_record(record)]
-    languages = []
-    genders = []
-    for record in records:
-        language = str(record.get("language", "")).strip()
-        gender = str(record.get("gender", "")).strip()
-        if language and language not in languages:
-            languages.append(language)
-        if gender and gender not in genders:
-            genders.append(gender)
-    return voices, languages, genders
-
-
-def fetch_character_field_options(
-    *,
-    timeout_sec: float = 6.0,
-) -> tuple[list[str], list[str], list[str]]:
-    debug_enabled = _debug_enabled()
-    realtime_host = _resolve_realtime_host()
-    try:
-        from furhat_realtime_api import AsyncFurhatClient
-    except Exception:
-        if debug_enabled:
-            _debug_print("Furhat field options debug: furhat_realtime_api import failed; using fallback lists.")
-        return [], [], []
-
-    async def _query() -> tuple[list[str], list[str], list[str]]:
-        client = AsyncFurhatClient(realtime_host)
-        if debug_enabled:
-            _debug_print(f"Furhat field options debug: connecting to {realtime_host}")
-        await asyncio.wait_for(client.connect(), timeout=timeout_sec)
-        responses: list[Any] = []
-        try:
-            try:
-                response = await asyncio.wait_for(
-                    client.request_voice_status(voice_id=True, voice_list=True),
-                    timeout=timeout_sec,
-                )
-                if debug_enabled:
-                    print(f"Furhat voice_status field options raw payload: {response!r}", flush=True)
-                responses.append(response)
-            except Exception:
-                pass
-            try:
-                response = await asyncio.wait_for(
-                    client.request_face_status(face_id=True, face_list=True),
-                    timeout=timeout_sec,
-                )
-                if debug_enabled:
-                    print(f"Furhat face_status field options raw payload: {response!r}", flush=True)
-                responses.append(response)
-            except Exception:
-                pass
-            try:
-                response = await asyncio.wait_for(
-                    client.request_listen_config(),
-                    timeout=timeout_sec,
-                )
-                if debug_enabled:
-                    print(f"Furhat listen_config field options raw payload: {response!r}", flush=True)
-                responses.append(response)
-            except Exception:
-                pass
-        finally:
-            try:
-                await asyncio.wait_for(client.disconnect(), timeout=2.0)
-            except Exception:
-                pass
-
-        categories: list[str] = []
-        initiatives: list[str] = []
-        disengagements: list[str] = []
-        for idx, payload in enumerate(responses):
-            parsed_categories, parsed_initiatives, parsed_disengagements = _extract_character_field_options(
-                payload
-            )
-            if debug_enabled:
-                print(
-                    f"Extracted from response {idx}: categories={parsed_categories}, "
-                    f"initiatives={parsed_initiatives}, disengagements={parsed_disengagements}",
-                    flush=True,
-                )
-            categories = _merge_option_sources(categories, parsed_categories)
-            initiatives = _merge_option_sources(initiatives, parsed_initiatives)
-            disengagements = _merge_option_sources(disengagements, parsed_disengagements)
-
-        if debug_enabled:
-            print(
-                f"Final merged field options: categories={categories}, "
-                f"initiatives={initiatives}, disengagements={disengagements}",
-                flush=True,
-            )
-
-        return categories, initiatives, disengagements
-
-    try:
-        return asyncio.run(_query())
-    except Exception:
-        if debug_enabled:
-            _debug_print(f"Furhat field options debug: request failed for {realtime_host}; using fallback lists.")
-        return [], [], []
-
-
-def _to_bool(value: Any, *, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        cleaned = value.strip().lower()
-        if cleaned in {"1", "true", "yes", "y", "on"}:
-            return True
-        if cleaned in {"0", "false", "no", "n", "off"}:
-            return False
-    return bool(value) if value is not None else default
-
-
-def _to_float(value: Any, *, default: float) -> float:
-    try:
-        return float(value)
-    except Exception:
-        return default
-
-
-def _normalize_links(value: Any) -> list[dict[str, str]]:
-    links: list[dict[str, str]] = []
-    if not isinstance(value, list):
-        return links
-    for item in value:
-        if isinstance(item, str):
-            link = item.strip()
-            if link:
-                links.append({"link": link})
-        elif isinstance(item, dict):
-            link = str(item.get("link", "")).strip()
-            if link:
-                links.append({"link": link})
-    return links
-
-
-def _normalize_action_schema(value: Any) -> list[dict[str, Any]]:
-    if isinstance(value, list):
-        normalized: list[dict[str, Any]] = []
-        for item in value:
-            if isinstance(item, dict):
-                normalized.append(item)
-        return normalized
-    return []
-
-
-def normalize_character_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    base = deepcopy(DEFAULT_CHARACTER_TEMPLATE)
-    source = payload if isinstance(payload, dict) else {}
-
-    base["id"] = str(source.get("id", base["id"]))
-    base["name"] = str(source.get("name", base["name"]))
-    base["voiceId"] = str(source.get("voiceId", base["voiceId"]))
-    base["voiceExpressivity"] = _to_bool(source.get("voiceExpressivity"), default=False)
-    base["inputLanguageId"] = str(source.get("inputLanguageId", base["inputLanguageId"]))
-    base["gender"] = str(source.get("gender", base["gender"]))
-    base["faceId"] = str(source.get("faceId", base["faceId"]))
-    base["agentName"] = str(source.get("agentName", base["agentName"]))
-    base["description"] = str(source.get("description", base["description"]))
-    base["expressiveness"] = _to_float(source.get("expressiveness"), default=1.1)
-    base["expressivenessFrequency"] = _to_float(source.get("expressivenessFrequency"), default=8.0)
-    base["externalLinks"] = _normalize_links(source.get("externalLinks", []))
-    base["category"] = str(source.get("category", base["category"]))
-    base["initiative"] = str(source.get("initiative", base["initiative"]))
-    base["openingLine"] = str(source.get("openingLine", base["openingLine"]))
-    base["useCamera"] = _to_bool(source.get("useCamera"), default=False)
-    base["canEndConversation"] = _to_bool(source.get("canEndConversation"), default=True)
-    base["disengagementThreshold"] = str(
-        source.get("disengagementThreshold", base["disengagementThreshold"])
-    )
-    base["useHeadPose"] = _to_bool(source.get("useHeadPose"), default=False)
-    base["logInteractions"] = _to_bool(source.get("logInteractions"), default=False)
-    base["actionSchema"] = _normalize_action_schema(source.get("actionSchema", []))
-    return base
-
-
-def load_character_payload(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("character file must contain a JSON object")
-    return normalize_character_payload(payload)
-
-
-def save_character_payload(path: Path, payload: dict[str, Any]) -> None:
-    normalized = normalize_character_payload(payload)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(normalized, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+from .character_constants import (
+    DEFAULT_CHARACTER_TEMPLATE,
+    FALLBACK_VOICE_OPTIONS,
+    FALLBACK_LANGUAGE_OPTIONS,
+    FALLBACK_GENDER_OPTIONS,
+    FALLBACK_FACE_OPTIONS,
+    FALLBACK_CATEGORY_OPTIONS,
+    FALLBACK_INITIATIVE_OPTIONS,
+    FALLBACK_DISENGAGEMENT_OPTIONS,
+)
+from .character_utils import (
+    _merge_option_sources,
+    _dedupe_options,
+    _sort_voice_records,
+    _voice_label_from_record,
+    _to_bool,
+    _to_float,
+)
+from .character_fetch import (
+    fetch_face_options,
+    fetch_voice_records,
+    fetch_voice_options,
+    fetch_character_field_options,
+    _discover_character_field_options,
+)
+from .character_io import normalize_character_payload, load_character_payload, save_character_payload
+
+from ... import paths
 
 
 class CharacterCreatorWindow:
@@ -886,7 +289,7 @@ class CharacterCreatorWindow:
             parent,
             textvariable=variable,
             fg="#0f172a",
-            bg="#e2e8f0",
+            bg="#e2e80",
             relief="flat",
         ).grid(row=row, column=1, sticky="ew", pady=6, padx=(10, 18))
 
@@ -1189,7 +592,7 @@ class CharacterCreatorWindow:
 
                 # Schedule apply_character_file on the runtime (no greeting)
                 try:
-                    from ..Robot import runtime
+                    from ...Robot import runtime
                 except Exception:
                     def _show_error() -> None:
                         messagebox.showerror(
@@ -1239,7 +642,14 @@ class CharacterCreatorWindow:
                         from furhat_realtime_api import AsyncFurhatClient
 
                         async def _send_face() -> None:
-                            realtime_host = _resolve_realtime_host()
+                            realtime_host = None
+                            try:
+                                from .character_fetch import _resolve_realtime_host
+                                realtime_host = _resolve_realtime_host()
+                            except Exception:
+                                realtime_host = None
+                            if realtime_host is None:
+                                return
                             client = AsyncFurhatClient(realtime_host)
                             try:
                                 await asyncio.wait_for(client.connect(), timeout=6.0)
@@ -1252,7 +662,7 @@ class CharacterCreatorWindow:
                                         )
                                     except Exception:
                                         resp = None
-                                    available = _extract_face_ids(resp) if resp is not None else []
+                                    available = _discover_character_field_options(Path.cwd()) if resp is None else []
                                     if not available or face_id in available:
                                         try:
                                             await asyncio.wait_for(
@@ -1287,7 +697,8 @@ class CharacterCreatorWindow:
                         from furhat_realtime_api import AsyncFurhatClient
 
                         async def _speak_direct() -> None:
-                            realtime_host = _resolve_realtime_host()
+                            from .character_fetch import _resolve_realtime_host as _rhost
+                            realtime_host = _rhost()
                             client = AsyncFurhatClient(realtime_host)
                             try:
                                 await asyncio.wait_for(client.connect(), timeout=6.0)
@@ -1301,7 +712,12 @@ class CharacterCreatorWindow:
                                             )
                                         except Exception:
                                             resp = None
-                                        voice_records = _extract_voice_records(resp) if resp is not None else []
+                                        voice_records = []
+                                        try:
+                                            from .character_utils import _extract_voice_records
+                                            voice_records = _extract_voice_records(resp) if resp is not None else []
+                                        except Exception:
+                                            voice_records = []
                                         chosen_voice = voice_id
                                         chosen_record: dict[str, str] | None = None
                                         if voice_records:

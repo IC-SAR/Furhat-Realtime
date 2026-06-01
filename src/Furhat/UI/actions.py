@@ -30,7 +30,7 @@ from ..settings_store import (
     VoiceSettings,
     WebSettings,
 )
-from .character_creator import launch_character_creator
+from .character_creator.character_creator import launch_character_creator
 from . import support
 from .state import UIState
 
