@@ -9,9 +9,9 @@ Or run directly if `src` is on `PYTHONPATH`.
 """
 
 from __future__ import annotations
+
 import sys
 from pathlib import Path
-import importlib.util
 
 
 def _ensure_src_on_path() -> None:
@@ -35,25 +35,11 @@ def _ensure_src_on_path() -> None:
 
 
 def main() -> None:
-    # Prefer normal package import. If that fails, add `src` to path
-    # and try again; as a last resort load the local module by path.
-    try:
-        from Furhat.UI.character_creator import launch_character_creator
-    except Exception:
-        _ensure_src_on_path()
-        try:
-            from Furhat.UI.character_creator import launch_character_creator
-        except Exception:
-            # Try loading the local module file directly
-            mod_path = Path(__file__).resolve().parent / "character_creator.py"
-            spec = importlib.util.spec_from_file_location("Furhat.UI.character_creator", str(mod_path))
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                sys.modules["Furhat.UI.character_creator"] = module
-                spec.loader.exec_module(module)
-                launch_character_creator = getattr(module, "launch_character_creator")
-            else:
-                raise
+    # Add the workspace `src` directory so the package import works both when
+    # running this file directly and when using `python -m`.
+    _ensure_src_on_path()
+
+    from Furhat.UI.character_creator import launch_character_creator
 
     # launch the GUI (function handles creating the Tk root)
     launch_character_creator()
